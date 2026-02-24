@@ -1,6 +1,6 @@
 # practica-iw
 ## Integrantes del equipo de trabajo:
-Francisco Millán Bustamante
-Paula López Villalba
-Carmen Laín Villegas
-María Rosa Aguilar
+1. Francisco Millán Bustamante
+2. Paula López Villalba
+3. Carmen Laín Villegas
+4. María Rosa Aguilar
