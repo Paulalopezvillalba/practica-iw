@@ -1,0 +1,5 @@
+{
+  "name": "Original",
+  "description": "Una red social centrada en el bienestar digital, el uso consciente del tiempo y las interacciones saludables.",
+  "requestFramePermissions": ["camera", "microphone"]
+}
