@@ -1,0 +1,30 @@
+{
+  "name": "practica-iw",
+  "version": "1.0.0",
+  "description": "1. Francisco Millán Bustamante\r 2. Paula López Villalba\r 3. Carmen Laín Villegas\r 4. María Rosa Aguilar",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Paulalopezvillalba/practica-iw.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Paulalopezvillalba/practica-iw/issues"
+  },
+  "homepage": "https://github.com/Paulalopezvillalba/practica-iw#readme",
+  "dependencies": {
+    "firebase": "^12.11.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.2"
+  }
+}
