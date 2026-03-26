@@ -6,7 +6,7 @@ import {
   signInWithPopup,
   GoogleAuthProvider
 } from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, query, where, collection, getDocs } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
@@ -43,6 +43,23 @@ export const AuthPage: React.FC = () => {
 
         if (age < 18) {
           throw new Error('Debes ser mayor de edad para registrarte en Original.');
+        }
+
+        // Validate username format
+        const usernameRegex = /^[a-zA-Z0-9._-]+$/;
+        if (!usernameRegex.test(username)) {
+          throw new Error('El nombre de usuario solo puede contener letras, números, puntos, guiones y guiones bajos.');
+        }
+
+        if (username.length < 3 || username.length > 30) {
+          throw new Error('El nombre de usuario debe tener entre 3 y 30 caracteres.');
+        }
+
+        // Check for username uniqueness
+        const usernameQuery = query(collection(db, 'users'), where('username', '==', username.toLowerCase()));
+        const usernameSnapshot = await getDocs(usernameQuery);
+        if (!usernameSnapshot.empty) {
+          throw new Error('El nombre de usuario ya está en uso. Por favor, elige otro.');
         }
 
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -89,9 +106,25 @@ export const AuthPage: React.FC = () => {
       // Check if user document exists, if not create it
       const userDoc = await getDoc(doc(db, 'users', user.uid));
       if (!userDoc.exists()) {
+        let baseUsername = (user.displayName || 'usuario').toLowerCase().replace(/[^a-z0-9._-]/g, '_');
+        let finalUsername = baseUsername;
+        let isUnique = false;
+        let counter = 1;
+
+        while (!isUnique) {
+          const uQuery = query(collection(db, 'users'), where('username', '==', finalUsername));
+          const uSnapshot = await getDocs(uQuery);
+          if (uSnapshot.empty) {
+            isUnique = true;
+          } else {
+            finalUsername = `${baseUsername}${counter}`;
+            counter++;
+          }
+        }
+
         await setDoc(doc(db, 'users', user.uid), {
           uid: user.uid,
-          username: (user.displayName || 'usuario').toLowerCase().replace(/\s+/g, '_'),
+          username: finalUsername,
           isPrivate: false,
           status: 'active',
           role: 'user',
@@ -106,7 +139,17 @@ export const AuthPage: React.FC = () => {
       }
       navigate('/');
     } catch (err: any) {
-      if (err.code === 'auth/operation-not-allowed') {
+      if (err.code === 'auth/popup-closed-by-user') {
+        // User closed the popup, no need to show a scary error
+        return;
+      }
+      if (err.code === 'auth/cancelled-popup-request') {
+        // Another popup was opened, ignore this one
+        return;
+      }
+      if (err.code === 'auth/popup-blocked') {
+        setError('El navegador bloqueó la ventana emergente. Por favor, permite las ventanas emergentes para iniciar sesión.');
+      } else if (err.code === 'auth/operation-not-allowed') {
         setError('El inicio de sesión con Google no está habilitado en la consola de Firebase. Por favor, actívalo en Authentication > Sign-in method.');
       } else {
         setError(err.message);

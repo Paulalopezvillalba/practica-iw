@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { doc, updateDoc } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { doc, updateDoc, writeBatch, deleteDoc, query, where, collection, getDocs } from 'firebase/firestore';
+import { deleteUser } from 'firebase/auth';
+import { db, handleFirestoreError, OperationType, auth } from '../firebase';
 import { motion } from 'motion/react';
 import { 
   User, 
@@ -36,7 +37,11 @@ export const SettingsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [googlePhotosConnected, setGooglePhotosConnected] = useState(false);
   
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  
   const [formData, setFormData] = useState({
+    username: '',
     displayName: '',
     firstName: '',
     lastName: '',
@@ -49,6 +54,7 @@ export const SettingsPage: React.FC = () => {
   useEffect(() => {
     if (profile) {
       setFormData({
+        username: profile.username || '',
         displayName: profile.displayName || '',
         firstName: profile.firstName || '',
         lastName: profile.lastName || '',
@@ -123,15 +129,70 @@ export const SettingsPage: React.FC = () => {
     setGooglePhotosConnected(false);
   };
 
-  const handleSave = async () => {
+  const handleDeleteAccount = async () => {
     if (!user) return;
+    setDeleteLoading(true);
+    setError(null);
+    try {
+      // 1. Delete user data in Firestore
+      const batch = writeBatch(db);
+      
+      // Delete public profile
+      batch.delete(doc(db, 'users', user.uid));
+      
+      // Delete private settings
+      batch.delete(doc(db, 'users', user.uid, 'private', 'settings'));
+      
+      // Commit the batch
+      await batch.commit();
+      
+      // 2. Delete the user from Firebase Auth
+      await deleteUser(user);
+      
+      // Sign out is implicit on deleteUser, but let's be safe
+      await signOut();
+      navigate('/auth');
+    } catch (err: any) {
+      console.error("Error deleting account:", err);
+      if (err.code === 'auth/requires-recent-login') {
+        setError("Por seguridad, debes haber iniciado sesión recientemente para eliminar tu cuenta. Por favor, cierra sesión e inicia sesión de nuevo.");
+      } else {
+        setError("No se pudo eliminar la cuenta. Inténtalo de nuevo.");
+      }
+    } finally {
+      setDeleteLoading(false);
+      setShowDeleteConfirm(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!user || !profile) return;
     setLoading(true);
     setSuccess(false);
     setError(null);
     try {
+      // Check if username changed
+      const newUsername = formData.username.toLowerCase().trim();
+      if (newUsername !== profile.username) {
+        const usernameRegex = /^[a-zA-Z0-9._-]+$/;
+        if (!usernameRegex.test(newUsername)) {
+          throw new Error('El nombre de usuario solo puede contener letras, números, puntos, guiones y guiones bajos.');
+        }
+        if (newUsername.length < 3 || newUsername.length > 30) {
+          throw new Error('El nombre de usuario debe tener entre 3 y 30 caracteres.');
+        }
+
+        const uQuery = query(collection(db, 'users'), where('username', '==', newUsername));
+        const uSnapshot = await getDocs(uQuery);
+        if (!uSnapshot.empty) {
+          throw new Error('El nombre de usuario ya está en uso. Por favor, elige otro.');
+        }
+      }
+
       // Update public profile
       try {
         await updateDoc(doc(db, 'users', user.uid), {
+          username: newUsername,
           displayName: formData.displayName,
           bio: formData.bio,
           isPrivate: formData.isPrivate,
@@ -169,7 +230,8 @@ export const SettingsPage: React.FC = () => {
       title: 'Información Personal',
       icon: User,
       fields: [
-        { id: 'displayName', label: 'Nombre público', type: 'text', placeholder: 'Tu nombre visible', icon: AtSign },
+        { id: 'username', label: 'Nombre de usuario', type: 'text', placeholder: 'usuario123', icon: AtSign },
+        { id: 'displayName', label: 'Nombre público', type: 'text', placeholder: 'Tu nombre visible', icon: User },
         { id: 'firstName', label: 'Nombre', type: 'text', placeholder: 'Tu nombre real', icon: User },
         { id: 'lastName', label: 'Apellidos', type: 'text', placeholder: 'Tus apellidos', icon: User },
         { id: 'birthDate', label: 'Fecha de nacimiento', type: 'date', icon: Calendar },
@@ -224,6 +286,41 @@ export const SettingsPage: React.FC = () => {
             {error}
           </motion.div>
         )}
+        {/* Delete Confirmation Modal */}
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-black-soft border border-rose-500/20 p-8 rounded-3xl max-w-sm w-full text-center space-y-6 shadow-2xl shadow-rose-500/10"
+            >
+              <div className="w-16 h-16 bg-rose-500/10 text-rose-500 rounded-full flex items-center justify-center mx-auto">
+                <Shield size={32} />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-xl font-bold text-white">¿Eliminar cuenta?</h2>
+                <p className="text-gold/40 text-sm">Esta acción es irreversible. Se borrarán todos tus datos y perderás el acceso.</p>
+              </div>
+              <div className="flex flex-col space-y-3">
+                <button 
+                  onClick={handleDeleteAccount}
+                  disabled={deleteLoading}
+                  className="w-full py-4 bg-rose-500 text-white rounded-2xl font-bold hover:bg-rose-600 transition-all disabled:opacity-50"
+                >
+                  {deleteLoading ? 'Eliminando...' : 'Sí, eliminar cuenta'}
+                </button>
+                <button 
+                  onClick={() => setShowDeleteConfirm(false)}
+                  disabled={deleteLoading}
+                  className="w-full py-4 bg-black border border-gold/20 text-gold rounded-2xl font-bold hover:bg-white/5 transition-all"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {/* Profile Picture Preview */}
         <div className="flex flex-col items-center space-y-4">
           <div className="relative group">
@@ -402,7 +499,10 @@ export const SettingsPage: React.FC = () => {
             <span>Cerrar sesión</span>
           </button>
           
-          <button className="w-full py-4 bg-rose-500/10 text-rose-500 rounded-2xl font-bold border border-rose-500/20 hover:bg-rose-500 hover:text-white transition-all">
+          <button 
+            onClick={() => setShowDeleteConfirm(true)}
+            className="w-full py-4 bg-rose-500/10 text-rose-500 rounded-2xl font-bold border border-rose-500/20 hover:bg-rose-500 hover:text-white transition-all"
+          >
             Eliminar cuenta
           </button>
           <p className="text-center text-gold/20 text-[10px] mt-4 uppercase tracking-widest">

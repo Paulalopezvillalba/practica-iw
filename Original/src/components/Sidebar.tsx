@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useUnreadCount } from '../hooks/useUnreadCount';
+import { useNotificationsCount } from '../hooks/useNotificationsCount';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface SidebarProps {
@@ -30,6 +31,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const location = useLocation();
   const [pendingRequests, setPendingRequests] = useState(0);
   const unreadCount = useUnreadCount();
+  const notificationsCount = useNotificationsCount();
 
   useEffect(() => {
     if (!profile?.uid) return;
@@ -43,7 +45,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     { icon: Home, label: 'Inicio', path: '/' },
     { icon: Search, label: 'Buscar', path: '/explore' },
     { icon: MessageCircle, label: 'Mensajes', path: '/messages', badge: unreadCount },
-    { icon: Heart, label: 'Notificaciones', path: '/notifications' },
+    { icon: Heart, label: 'Notificaciones', path: '/notifications', badge: notificationsCount },
     { icon: UserPlus, label: 'Solicitudes', path: '/follow-requests', badge: pendingRequests },
     { icon: PlusSquare, label: 'Crear', path: '/create' },
     { icon: Clock, label: 'Bienestar', path: '/wellbeing' },
@@ -90,8 +92,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                   <span className="text-lg">{item.label}</span>
                 </div>
                 {item.badge !== undefined && item.badge > 0 && (
-                  <span className="bg-gold text-black text-[10px] font-bold px-2 py-0.5 rounded-full">
-                    {item.badge}
+                  <span className={`${item.label === 'Notificaciones' || item.label === 'Mensajes' ? 'bg-rose-500' : 'bg-gold'} text-white text-[10px] font-bold px-2 py-0.5 rounded-full`}>
+                    {item.badge > 99 ? '99+' : item.badge}
                   </span>
                 )}
               </Link>

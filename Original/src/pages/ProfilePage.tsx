@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, collection, query, where, orderBy, onSnapshot, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, orderBy, onSnapshot, updateDoc, setDoc, deleteDoc, addDoc } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { motion } from 'motion/react';
@@ -142,6 +142,17 @@ export const ProfilePage: React.FC = () => {
         } else {
           await setDoc(followingRef, { uid: id, followedAt: new Date().toISOString() });
           await setDoc(followerRef, { uid: user.uid, followedAt: new Date().toISOString() });
+
+          // Create notification for followed user
+          await addDoc(collection(db, 'users', id, 'notifications'), {
+            type: 'follow',
+            fromUserId: user.uid,
+            fromUserName: currentUserProfile?.username || user.displayName || 'usuario',
+            fromUserPhoto: currentUserProfile?.photoURL || user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName || 'U'}&background=random`,
+            text: 'ha empezado a seguirte',
+            isRead: false,
+            createdAt: new Date().toISOString()
+          });
         }
       }
     } catch (error) {
@@ -286,6 +297,7 @@ export const ProfilePage: React.FC = () => {
                 <motion.div 
                   key={post.id}
                   whileHover={{ scale: 1.02 }}
+                  onClick={() => navigate(`/post/${post.id}`)}
                   className="aspect-square bg-black-soft overflow-hidden cursor-pointer relative group border border-gold/5"
                 >
                   <img 

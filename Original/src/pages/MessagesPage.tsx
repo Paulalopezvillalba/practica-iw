@@ -23,6 +23,10 @@ export const MessagesPage: React.FC = () => {
   const [pendingRequests, setPendingRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNewChat, setShowNewChat] = useState(false);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  const [followingList, setFollowingList] = useState<SuggestedUser[]>([]);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
   const navigate = useNavigate();
@@ -123,12 +127,83 @@ export const MessagesPage: React.FC = () => {
       setSuggestedUsers(detailedUsers.filter(u => u !== null) as SuggestedUser[]);
     });
 
+    // Fetch All Following for Group Creation
+    const fetchFollowing = async () => {
+      const followingRef = collection(db, 'users', user.uid, 'following');
+      const snapshot = await getDoc(doc(db, 'users', user.uid)); // Just to trigger if needed, but we use onSnapshot below
+      
+      const unsubscribeFollowingFull = onSnapshot(followingRef, async (snap) => {
+        const followingIds = snap.docs.map(doc => doc.id);
+        const detailedUsers = await Promise.all(
+          followingIds.map(async (id) => {
+            const userDoc = await getDoc(doc(db, 'users', id));
+            if (userDoc.exists()) {
+              const data = userDoc.data();
+              return {
+                uid: id,
+                username: data.username || 'Usuario',
+                displayName: data.displayName || '',
+                photoURL: data.photoURL || '',
+                isPrivate: data.isPrivate || false
+              };
+            }
+            return null;
+          })
+        );
+        setFollowingList(detailedUsers.filter(u => u !== null) as SuggestedUser[]);
+      });
+      return unsubscribeFollowingFull;
+    };
+
+    let unsubFollowingFull: () => void;
+    fetchFollowing().then(unsub => unsubFollowingFull = unsub);
+
     return () => {
       unsubscribeChats();
       unsubscribeRequests();
       unsubscribeFollowing();
+      if (unsubFollowingFull) unsubFollowingFull();
     };
   }, [user, chats.length]); // Re-run when chats length changes to update suggestions
+
+  const handleCreateGroup = async () => {
+    if (!user || !currentUserProfile || !groupName.trim() || selectedMembers.length === 0) return;
+    setLoading(true);
+
+    try {
+      const now = new Date().toISOString();
+      const chatRef = await addDoc(collection(db, 'chats'), {
+        name: groupName.trim(),
+        type: 'group',
+        participants: [user.uid, ...selectedMembers],
+        moderatorId: user.uid,
+        mutedParticipants: [],
+        lastMessage: 'Grupo creado',
+        lastMessageAt: now,
+        createdAt: now,
+        lastReadAt: {
+          [user.uid]: now
+        }
+      });
+
+      setNotification({ message: "Grupo creado correctamente.", type: 'success' });
+      setShowCreateGroup(false);
+      setGroupName('');
+      setSelectedMembers([]);
+      navigate(`/messages/${chatRef.id}`);
+    } catch (error) {
+      console.error("Error creating group:", error);
+      setNotification({ message: "Error al crear el grupo.", type: 'info' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleMemberSelection = (uid: string) => {
+    setSelectedMembers(prev => 
+      prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]
+    );
+  };
 
   const handleStartConversation = async (targetUser: SuggestedUser) => {
     if (!user || !currentUserProfile) return;
@@ -214,8 +289,16 @@ export const MessagesPage: React.FC = () => {
               </Link>
             )}
             <button 
+              onClick={() => setShowCreateGroup(true)}
+              className="p-2 bg-gold/10 text-gold rounded-xl hover:bg-gold/20 transition-colors"
+              title="Crear grupo"
+            >
+              <Users size={24} />
+            </button>
+            <button 
               onClick={() => setShowNewChat(true)}
               className="p-2 bg-gold/10 text-gold rounded-xl hover:bg-gold/20 transition-colors"
+              title="Nuevo mensaje"
             >
               <Plus size={24} />
             </button>
@@ -381,14 +464,98 @@ export const MessagesPage: React.FC = () => {
           <p className="text-gold/60 leading-relaxed">
             Envía fotos y mensajes privados a tus amigos. Recuerda mantener siempre un tono respetuoso.
           </p>
-          <button 
-            onClick={() => setShowNewChat(true)}
-            className="mt-8 px-8 py-3 bg-gold text-black rounded-2xl font-bold hover:bg-gold-light transition-all shadow-lg shadow-gold/20"
-          >
-            Nuevo mensaje
-          </button>
+          <div className="flex flex-col space-y-3 mt-8 w-full">
+            <button 
+              onClick={() => setShowNewChat(true)}
+              className="w-full px-8 py-3 bg-gold text-black rounded-2xl font-bold hover:bg-gold-light transition-all shadow-lg shadow-gold/20"
+            >
+              Nuevo mensaje
+            </button>
+            <button 
+              onClick={() => setShowCreateGroup(true)}
+              className="w-full px-8 py-3 bg-black-soft text-gold border border-gold/20 rounded-2xl font-bold hover:bg-gold/10 transition-all"
+            >
+              Crear grupo
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Create Group Modal */}
+      <AnimatePresence>
+        {showCreateGroup && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md bg-black-soft border border-gold/20 rounded-3xl overflow-hidden shadow-2xl"
+            >
+              <div className="p-6 border-b border-gold/10 flex items-center justify-between">
+                <h2 className="text-xl font-bold text-white">Crear nuevo grupo</h2>
+                <button onClick={() => setShowCreateGroup(false)} className="text-gold/40 hover:text-gold transition-colors">
+                  <Plus size={24} className="rotate-45" />
+                </button>
+              </div>
+              
+              <div className="p-6 space-y-6">
+                <div>
+                  <label className="block text-[10px] font-bold text-gold/40 uppercase tracking-widest mb-2">Nombre del grupo</label>
+                  <input 
+                    type="text"
+                    value={groupName}
+                    onChange={(e) => setGroupName(e.target.value)}
+                    placeholder="Ej: Amigos de la Universidad"
+                    className="w-full px-4 py-3 bg-black rounded-2xl border border-gold/10 focus:ring-2 focus:ring-gold outline-none text-sm text-white placeholder:text-slate-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-gold/40 uppercase tracking-widest mb-2">Seleccionar miembros ({selectedMembers.length})</label>
+                  <div className="max-h-60 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                    {followingList.length > 0 ? (
+                      followingList.map(u => (
+                        <button
+                          key={u.uid}
+                          onClick={() => toggleMemberSelection(u.uid)}
+                          className={`w-full flex items-center space-x-3 p-3 rounded-2xl border transition-all ${
+                            selectedMembers.includes(u.uid)
+                              ? 'bg-gold/10 border-gold/40'
+                              : 'bg-black border-gold/5 hover:border-gold/20'
+                          }`}
+                        >
+                          <img src={u.photoURL || `https://ui-avatars.com/api/?name=${u.username}`} className="w-10 h-10 rounded-xl object-cover" referrerPolicy="no-referrer" />
+                          <div className="flex-1 text-left">
+                            <p className="text-sm font-bold text-white">@{u.username}</p>
+                            <p className="text-[10px] text-gold/40">{u.displayName}</p>
+                          </div>
+                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                            selectedMembers.includes(u.uid) ? 'bg-gold border-gold' : 'border-gold/20'
+                          }`}>
+                            {selectedMembers.includes(u.uid) && <Plus size={14} className="text-black rotate-45" />}
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="text-center py-4 text-gold/40 text-xs italic">No sigues a nadie todavía.</p>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleCreateGroup}
+                  disabled={!groupName.trim() || selectedMembers.length === 0 || loading}
+                  className="w-full py-4 bg-gold text-black rounded-2xl font-bold hover:bg-gold-light transition-all shadow-lg shadow-gold/20 disabled:opacity-50"
+                >
+                  {loading ? 'Creando...' : 'Crear Grupo'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
+
+export default MessagesPage;

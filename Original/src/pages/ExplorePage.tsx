@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, limit, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, limit, doc, setDoc, deleteDoc, onSnapshot, orderBy } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { UserCard } from '../components/UserCard';
-import { Search, Sparkles, Hash } from 'lucide-react';
+import { PostCard } from '../components/PostCard';
+import { Search, Sparkles, Hash, User as UserIcon } from 'lucide-react';
 
 export const ExplorePage: React.FC = () => {
   const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
-  const [results, setResults] = useState<any[]>([]);
+  const [userResults, setUserResults] = useState<any[]>([]);
+  const [postResults, setPostResults] = useState<any[]>([]);
   const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -32,29 +34,44 @@ export const ExplorePage: React.FC = () => {
   }, [user]);
 
   useEffect(() => {
-    const searchUsers = async () => {
-      if (!searchTerm.trim()) {
-        setResults([]);
+    const handleSearch = async () => {
+      const term = searchTerm.trim().toLowerCase();
+      if (!term) {
+        setUserResults([]);
+        setPostResults([]);
         return;
       }
       setLoading(true);
       try {
-        const q = query(
+        // Search Users
+        const userTerm = term.startsWith('@') ? term.slice(1) : term;
+        const userQuery = query(
           collection(db, 'users'),
-          where('username', '>=', searchTerm.toLowerCase()),
-          where('username', '<=', searchTerm.toLowerCase() + '\uf8ff'),
+          where('username', '>=', userTerm),
+          where('username', '<=', userTerm + '\uf8ff'),
           limit(10)
         );
-        const snapshot = await getDocs(q);
-        setResults(snapshot.docs.map(doc => doc.data()).filter(u => u.uid !== user?.uid));
+        const userSnapshot = await getDocs(userQuery);
+        setUserResults(userSnapshot.docs.map(doc => doc.data()).filter(u => u.uid !== user?.uid));
+
+        // Search Hashtags
+        const hashtagTerm = term.startsWith('#') ? term : `#${term}`;
+        const postQuery = query(
+          collection(db, 'posts'),
+          where('hashtags', 'array-contains', hashtagTerm),
+          where('status', '==', 'active'),
+          limit(10)
+        );
+        const postSnapshot = await getDocs(postQuery);
+        setPostResults(postSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a: any, b: any) => (b.createdAt || '').localeCompare(a.createdAt || '')));
       } catch (error) {
-        console.error("Error searching users:", error);
+        console.error("Error searching:", error);
       } finally {
         setLoading(false);
       }
     };
 
-    const timeoutId = setTimeout(searchUsers, 300);
+    const timeoutId = setTimeout(handleSearch, 300);
     return () => clearTimeout(timeoutId);
   }, [searchTerm, user]);
 
@@ -115,21 +132,62 @@ export const ExplorePage: React.FC = () => {
         </div>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="space-y-12">
         {loading ? (
-          <div className="col-span-2 text-center py-12 text-gold/40">Buscando...</div>
-        ) : results.length > 0 ? (
-          results.map(u => (
-            <UserCard 
-              key={u.uid} 
-              user={u} 
-              isFollowing={followingIds.has(u.uid)}
-              isRequested={requestedIds.has(u.uid)}
-              onFollow={() => handleFollow(u)}
-            />
-          ))
+          <div className="text-center py-12 text-gold/40 flex flex-col items-center space-y-4">
+            <Sparkles className="animate-pulse text-gold" size={32} />
+            <p className="font-medium">Buscando en la red...</p>
+          </div>
         ) : searchTerm ? (
-          <div className="col-span-2 text-center py-12 text-gold/40">No se encontraron resultados.</div>
+          <div className="space-y-12">
+            {/* User Results */}
+            <section>
+              <h2 className="text-lg font-bold text-white mb-6 flex items-center space-x-2">
+                <UserIcon size={20} className="text-gold" />
+                <span>Usuarios</span>
+              </h2>
+              {userResults.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {userResults.map(u => (
+                    <UserCard 
+                      key={u.uid} 
+                      user={u} 
+                      isFollowing={followingIds.has(u.uid)}
+                      isRequested={requestedIds.has(u.uid)}
+                      onFollow={() => handleFollow(u)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="bg-black-soft p-8 rounded-3xl border border-gold/10 text-center">
+                  <p className="text-gold/40">Usuario <span className="text-gold font-bold">'{searchTerm.replace(/^[@#]/, '')}'</span> no encontrado</p>
+                </div>
+              )}
+            </section>
+
+            {/* Hashtag Results */}
+            <section>
+              <h2 className="text-lg font-bold text-white mb-6 flex items-center space-x-2">
+                <Hash size={20} className="text-gold" />
+                <span>Publicaciones</span>
+              </h2>
+              {postResults.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {postResults.map(p => (
+                    <PostCard 
+                      key={p.id} 
+                      post={p} 
+                      onHashtagClick={(tag) => setSearchTerm(tag)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="bg-black-soft p-8 rounded-3xl border border-gold/10 text-center">
+                  <p className="text-gold/40"><span className="text-gold font-bold">#{searchTerm.replace(/^[@#]/, '')}</span> no tiene resultados</p>
+                </div>
+              )}
+            </section>
+          </div>
         ) : (
           <div className="col-span-2 space-y-8">
             <section>
@@ -149,7 +207,11 @@ export const ExplorePage: React.FC = () => {
               </h2>
               <div className="flex flex-wrap gap-2">
                 {['#bienestar', '#original', '#saludmental', '#fotografia', '#naturaleza'].map(tag => (
-                  <button key={tag} className="px-4 py-2 bg-black-soft border border-gold/20 text-gold rounded-xl font-semibold hover:bg-gold/10 transition-colors">
+                  <button 
+                    key={tag} 
+                    onClick={() => setSearchTerm(tag)}
+                    className="px-4 py-2 bg-black-soft border border-gold/20 text-gold rounded-xl font-semibold hover:bg-gold/10 transition-colors"
+                  >
                     {tag}
                   </button>
                 ))}

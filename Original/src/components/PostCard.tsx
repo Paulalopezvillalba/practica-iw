@@ -1,17 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, orderBy, onSnapshot, doc, updateDoc, arrayUnion, arrayRemove, addDoc, getDoc, setDoc, deleteDoc, increment } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, doc, updateDoc, arrayUnion, arrayRemove, addDoc, getDoc, setDoc, deleteDoc, increment, getDocs } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { Heart, MessageCircle, MoreHorizontal, Clock, Trash2, Send } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { analyzeComment } from '../services/geminiService';
 import { SharePostModal } from './SharePostModal';
 
-export const PostCard: React.FC<{ post: any }> = ({ post }) => {
+export const PostCard: React.FC<{ post: any; onHashtagClick?: (tag: string) => void }> = ({ post, onHashtagClick }) => {
   const { user, profile } = useAuth();
+  const navigate = useNavigate();
   const [isLiked, setIsLiked] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
@@ -58,6 +59,20 @@ export const PostCard: React.FC<{ post: any }> = ({ post }) => {
       } else {
         await setDoc(likeRef, { uid: user.uid, createdAt: new Date().toISOString() });
         await updateDoc(postRef, { likesCount: increment(1) });
+        
+        // Create notification for post author
+        if (post.authorId !== user.uid) {
+          await addDoc(collection(db, 'users', post.authorId, 'notifications'), {
+            type: 'like',
+            fromUserId: user.uid,
+            fromUserName: profile?.username || user.displayName,
+            fromUserPhoto: profile?.photoURL || user.photoURL,
+            postId: post.id,
+            text: 'le ha dado a me gusta a tu foto',
+            isRead: false,
+            createdAt: new Date().toISOString()
+          });
+        }
       }
     } catch (error) {
       console.error("Error toggling like:", error);
@@ -77,7 +92,7 @@ export const PostCard: React.FC<{ post: any }> = ({ post }) => {
     }
 
     try {
-      await addDoc(collection(db, 'posts', post.id, 'comments'), {
+      const commentRef = await addDoc(collection(db, 'posts', post.id, 'comments'), {
         postId: post.id,
         authorId: user.uid,
         authorName: profile?.username || user.displayName,
@@ -88,6 +103,71 @@ export const PostCard: React.FC<{ post: any }> = ({ post }) => {
       await updateDoc(doc(db, 'posts', post.id), {
         commentsCount: increment(1)
       });
+
+      // Create notification for post author
+      if (post.authorId !== user.uid) {
+        await addDoc(collection(db, 'users', post.authorId, 'notifications'), {
+          type: 'comment',
+          fromUserId: user.uid,
+          fromUserName: profile?.username || user.displayName,
+          fromUserPhoto: profile?.photoURL || user.photoURL,
+          postId: post.id,
+          text: `comentó: "${commentText.substring(0, 30)}${commentText.length > 30 ? '...' : ''}"`,
+          isRead: false,
+          createdAt: new Date().toISOString()
+        });
+      }
+
+      // Handle mentions
+      // Support accented characters and common symbols in usernames
+      const mentionMatches = commentText.match(/@([a-zA-Z0-9_À-ÿ.]+)/g);
+      if (mentionMatches) {
+        const potentialUsernames = Array.from(new Set(mentionMatches.map(m => m.substring(1).toLowerCase())));
+        
+        for (const rawUsername of potentialUsernames) {
+          let username = rawUsername;
+          let foundUser = null;
+          let foundUserId = null;
+
+          // Greedy search: try the whole string, then strip characters from the end one by one
+          // This handles cases like "@paula_lópez_villalba." or "@user!"
+          while (username.length > 0) {
+            const userQuery = query(collection(db, 'users'), where('username', '==', username));
+            const userSnapshot = await getDocs(userQuery);
+            
+            if (!userSnapshot.empty) {
+              foundUser = userSnapshot.docs[0].data();
+              foundUserId = foundUser.uid;
+              break;
+            }
+            // Strip last character and try again (handles trailing punctuation)
+            username = username.slice(0, -1);
+          }
+
+          if (foundUserId) {
+            try {
+              // Add to permittedUsers (always do this if found)
+              await updateDoc(doc(db, 'posts', post.id), {
+                permittedUsers: arrayUnion(foundUserId)
+              });
+
+              // Create notification (even for self for testing, or just to be sure)
+              await addDoc(collection(db, 'users', foundUserId, 'notifications'), {
+                type: 'mention',
+                fromUserId: user.uid,
+                fromUserName: profile?.username || user.displayName || 'usuario',
+                fromUserPhoto: profile?.photoURL || user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName || 'U'}&background=random`,
+                postId: post.id,
+                text: 'te ha mencionado en un comentario',
+                isRead: false,
+                createdAt: new Date().toISOString()
+              });
+            } catch (err) {
+              console.error("Error processing mention for", username, err);
+            }
+          }
+        }
+      }
 
       setCommentText('');
     } catch (error) {
@@ -197,11 +277,24 @@ export const PostCard: React.FC<{ post: any }> = ({ post }) => {
             {post.description}
           </div>
           {post.hashtags?.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 pt-0.5">
+            <div className="flex flex-wrap gap-2 pt-1">
               {post.hashtags.map((tag: string) => (
-                <span key={tag} className="text-gold text-[11px] lg:text-xs font-medium hover:underline cursor-pointer">
-                  {tag}
-                </span>
+                <button 
+                  key={tag} 
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const cleanTag = tag.startsWith('#') ? tag : `#${tag}`;
+                    if (onHashtagClick) {
+                      onHashtagClick(cleanTag);
+                    } else {
+                      navigate(`/?tag=${encodeURIComponent(cleanTag)}`);
+                    }
+                  }}
+                  className="text-gold text-[11px] lg:text-xs font-bold hover:underline cursor-pointer active:scale-95 transition-transform"
+                >
+                  {tag.startsWith('#') ? tag : `#${tag}`}
+                </button>
               ))}
             </div>
           )}

@@ -43,31 +43,34 @@ service cloud.firestore {
     }
 
     function isValidUser(data) {
-      let allowedFields = ['uid', 'username', 'displayName', 'photoURL', 'bio', 'isPrivate', 'status', 'createdAt', 'updatedAt', 'role'];
+      let allowedFields = ['uid', 'username', 'displayName', 'photoURL', 'bio', 'isPrivate', 'status', 'createdAt', 'updatedAt', 'role', 'usageLimitMinutes', 'pauseModeEnabled', 'feedPausesEnabled'];
       return data.keys().hasAll(['uid', 'username', 'isPrivate']) &&
              hasOnlyAllowedFields(allowedFields) &&
              data.uid == request.auth.uid &&
-             data.username is string && data.username.size() >= 3 && data.username.size() <= 30 &&
+             data.username is string && data.username.matches("^[a-z0-9._-]+$") &&
+             data.username.size() >= 3 && data.username.size() <= 30 &&
              data.isPrivate is bool &&
              data.status in ['active', 'suspended', 'banned'] &&
              (!('bio' in data) || (data.bio is string && data.bio.size() <= 500)) &&
              (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 50)) &&
-             (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 2000));
+             (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 2000)) &&
+             (!('usageLimitMinutes' in data) || (data.usageLimitMinutes is number)) &&
+             (!('pauseModeEnabled' in data) || (data.pauseModeEnabled is bool)) &&
+             (!('feedPausesEnabled' in data) || (data.feedPausesEnabled is bool));
     }
 
     function isValidUserSettings(data) {
-      let allowedFields = ['email', 'firstName', 'lastName', 'birthDate', 'usageLimitMinutes'];
+      let allowedFields = ['email', 'firstName', 'lastName', 'birthDate'];
       return data.keys().hasAll(['email']) &&
              hasOnlyAllowedFields(allowedFields) &&
              data.email is string && data.email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$") &&
              (!('firstName' in data) || (data.firstName is string && data.firstName.size() <= 50)) &&
              (!('lastName' in data) || (data.lastName is string && data.lastName.size() <= 50)) &&
-             (!('birthDate' in data) || (data.birthDate is string && data.birthDate.size() <= 20)) &&
-             (!('usageLimitMinutes' in data) || (data.usageLimitMinutes is number));
+             (!('birthDate' in data) || (data.birthDate is string && data.birthDate.size() <= 20));
     }
 
     function isValidPost(data) {
-      let allowedFields = ['authorId', 'authorName', 'authorPhoto', 'mediaUrl', 'mediaType', 'description', 'hashtags', 'duration', 'expiresAt', 'likesCount', 'commentsCount', 'status', 'createdAt', 'updatedAt'];
+      let allowedFields = ['authorId', 'authorName', 'authorPhoto', 'mediaUrl', 'mediaType', 'description', 'hashtags', 'duration', 'expiresAt', 'likesCount', 'commentsCount', 'status', 'createdAt', 'updatedAt', 'permittedUsers'];
       return data.keys().hasAll(['authorId', 'mediaUrl', 'mediaType', 'duration', 'status', 'createdAt']) &&
              hasOnlyAllowedFields(allowedFields) &&
              data.authorId == request.auth.uid &&
@@ -76,11 +79,20 @@ service cloud.firestore {
              data.status in ['active', 'archived'] &&
              (!('likesCount' in data) || (data.likesCount is number && data.likesCount >= 0)) &&
              (!('commentsCount' in data) || (data.commentsCount is number && data.commentsCount >= 0)) &&
-             (!('description' in data) || (data.description is string && data.description.size() <= 1000));
+             (!('description' in data) || (data.description is string && data.description.size() <= 1000)) &&
+             (!('permittedUsers' in data) || (data.permittedUsers is list && data.permittedUsers.size() <= 100));
     }
 
-    function isFollower(userId) {
-      return exists(/databases/$(database)/documents/users/$(userId)/followers/$(request.auth.uid));
+    function isValidNotification(data) {
+      let allowedFields = ['type', 'fromUserId', 'fromUserName', 'fromUserPhoto', 'postId', 'text', 'isRead', 'createdAt'];
+      return data.keys().hasAll(['type', 'fromUserId', 'fromUserName', 'isRead', 'createdAt']) &&
+             hasOnlyAllowedFields(allowedFields) &&
+             data.type in ['like', 'comment', 'follow', 'mention', 'follow_accept'] &&
+             data.fromUserId == request.auth.uid &&
+             data.isRead is bool &&
+             (!('fromUserPhoto' in data) || (data.fromUserPhoto is string)) &&
+             (!('postId' in data) || (data.postId is string)) &&
+             (!('text' in data) || (data.text is string));
     }
 
     function isValidComment(data) {
@@ -88,24 +100,29 @@ service cloud.firestore {
       return data.keys().hasAll(['postId', 'authorId', 'text', 'createdAt']) &&
              hasOnlyAllowedFields(allowedFields) &&
              data.authorId == request.auth.uid &&
-             data.text is string && data.text.size() <= 500;
+             data.text is string && data.text.size() <= 500 &&
+             (!('authorName' in data) || (data.authorName is string));
     }
 
     function isValidChat(data) {
-      let allowedFields = ['type', 'participants', 'lastMessage', 'lastMessageAt', 'name', 'adminId', 'createdAt', 'lastReadAt'];
+      let allowedFields = ['type', 'participants', 'lastMessage', 'lastMessageAt', 'name', 'moderatorId', 'mutedParticipants', 'createdAt', 'lastReadAt'];
       return data.keys().hasAll(['type', 'participants']) &&
              hasOnlyAllowedFields(allowedFields) &&
              data.type in ['individual', 'group'] &&
-             data.participants is list && data.participants.size() >= 2 && data.participants.size() <= 100;
+             data.participants is list && data.participants.size() >= 2 && data.participants.size() <= 100 &&
+             (data.type != 'group' || ('moderatorId' in data && data.moderatorId is string)) &&
+             (!('mutedParticipants' in data) || data.mutedParticipants is list);
     }
 
-    function isValidMessage(data) {
+    function isValidMessage(data, chatData) {
       let allowedFields = ['chatId', 'senderId', 'senderName', 'text', 'mediaUrl', 'mediaType', 'pollData', 'sharedPostId', 'createdAt'];
       return data.keys().hasAll(['chatId', 'senderId', 'createdAt']) &&
              hasOnlyAllowedFields(allowedFields) &&
              data.senderId == request.auth.uid &&
+             (!('mutedParticipants' in chatData) || !(request.auth.uid in chatData.mutedParticipants)) &&
              (!('text' in data) || (data.text is string && data.text.size() <= 2000)) &&
-             (!('senderName' in data) || (data.senderName is string && data.senderName.size() <= 100));
+             (!('senderName' in data) || (data.senderName is string && data.senderName.size() <= 100)) &&
+             (!('pollData' in data) || (data.pollData is map && 'question' in data.pollData && 'options' in data.pollData));
     }
 
     function isValidUsageLog(data) {
@@ -151,11 +168,12 @@ service cloud.firestore {
                       request.resource.data.status == resource.data.status &&
                       request.resource.data.role == resource.data.role;
       
-      allow delete: if isAdmin();
+      allow delete: if isOwner(userId) || isAdmin();
 
       match /private/settings {
         allow read: if isOwner(userId) || isAdmin();
-        allow write: if isOwner(userId) && isValidUserSettings(request.resource.data);
+        allow create, update: if isOwner(userId) && isValidUserSettings(request.resource.data);
+        allow delete: if isOwner(userId) || isAdmin();
       }
 
       match /followers/{followerId} {
@@ -174,19 +192,34 @@ service cloud.firestore {
         allow update: if isOwner(userId) && request.resource.data.status in ['accepted', 'rejected'];
         allow delete: if isOwner(userId) || isOwner(requesterId);
       }
+
+      match /notifications/{notificationId} {
+        allow read, list: if isOwner(userId);
+        allow create: if isAuthenticated() && isValidNotification(request.resource.data);
+        allow update: if isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+        allow delete: if isOwner(userId);
+      }
     }
 
     match /posts/{postId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        resource.data.authorId == request.auth.uid || 
+        isAdmin() ||
+        ('permittedUsers' in resource.data && request.auth.uid in resource.data.permittedUsers) ||
+        get(/databases/$(database)/documents/users/$(resource.data.authorId)).data.isPrivate == false ||
+        exists(/databases/$(database)/documents/users/$(resource.data.authorId)/followers/$(request.auth.uid))
+      );
+      allow list: if isAuthenticated();
       allow create: if isAuthenticated() && isValidPost(request.resource.data);
       allow update: if isAuthenticated() && (
         (isOwner(resource.data.authorId) && isValidPost(request.resource.data)) ||
         (
-          // Allow non-owners to update only likesCount and commentsCount
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'commentsCount']) &&
+          // Allow non-owners to update only likesCount, commentsCount and permittedUsers (for mentions)
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'commentsCount', 'permittedUsers']) &&
           // Basic type check for the updated fields
-          (request.resource.data.likesCount is number && request.resource.data.likesCount >= 0) &&
-          (request.resource.data.commentsCount is number && request.resource.data.commentsCount >= 0)
+          (!('likesCount' in request.resource.data) || (request.resource.data.likesCount is number && request.resource.data.likesCount >= 0)) &&
+          (!('commentsCount' in request.resource.data) || (request.resource.data.commentsCount is number && request.resource.data.commentsCount >= 0)) &&
+          (!('permittedUsers' in request.resource.data) || (request.resource.data.permittedUsers is list))
         )
       );
       allow delete: if isAuthenticated() && (isOwner(resource.data.authorId) || isAdmin());
@@ -208,11 +241,23 @@ service cloud.firestore {
       allow get: if isAuthenticated() && (resource == null || request.auth.uid in resource.data.participants);
       allow list: if isAuthenticated() && request.auth.uid in resource.data.participants;
       allow create: if isAuthenticated() && request.auth.uid in request.resource.data.participants && isValidChat(request.resource.data);
-      allow update: if isAuthenticated() && request.auth.uid in resource.data.participants && isValidChat(request.resource.data);
+      allow update: if isAuthenticated() && request.auth.uid in resource.data.participants && (
+        // Case 1: Moderator updating participants or mutedParticipants or name
+        (resource.data.moderatorId == request.auth.uid && isValidChat(request.resource.data)) ||
+        // Case 2: Any participant updating lastMessage, lastMessageAt, lastReadAt
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessage', 'lastMessageAt', 'lastReadAt']) && isValidChat(request.resource.data))
+      );
+      allow delete: if isAuthenticated() && resource.data.moderatorId == request.auth.uid;
 
       match /messages/{messageId} {
         allow read: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
-        allow create: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants && isValidMessage(request.resource.data);
+        allow create: if isAuthenticated() && 
+                      request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants && 
+                      isValidMessage(request.resource.data, get(/databases/$(database)/documents/chats/$(chatId)).data);
+        allow update: if isAuthenticated() && 
+                      request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pollData']) &&
+                      resource.data.mediaType == 'poll';
       }
     }
 

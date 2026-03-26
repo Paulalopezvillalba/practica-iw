@@ -57,8 +57,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         setLoading(false);
       }, (error) => {
-        handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
         setLoading(false);
+        handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
       });
 
       // Private settings

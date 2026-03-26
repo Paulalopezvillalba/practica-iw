@@ -1,17 +1,47 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { collection, query, where, orderBy, onSnapshot, limit, getDocs } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { PostCard } from '../components/PostCard';
-import { motion } from 'motion/react';
-import { Sparkles, TrendingUp, Clock } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Sparkles, TrendingUp, Clock, Coffee, X, Hash } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 
 export const HomePage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedHashtag = searchParams.get('tag');
+  
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'recent' | 'trending'>('recent');
+  const [showHashtagInput, setShowHashtagInput] = useState(false);
+  const [hashtagInput, setHashtagInput] = useState('');
   const [followingIds, setFollowingIds] = useState<string[]>([]);
+  const [showPause, setShowPause] = useState(false);
+  const sessionStartRef = useRef<number>(Date.now());
+
+  useEffect(() => {
+    if (!profile?.feedPausesEnabled) return;
+
+    const checkPause = () => {
+      const elapsed = Date.now() - sessionStartRef.current;
+      const minutes = elapsed / 60000;
+      
+      // Show pause every 15 minutes
+      if (minutes >= 15 && !showPause) {
+        setShowPause(true);
+      }
+    };
+
+    const interval = setInterval(checkPause, 10000); // Check every 10s
+    return () => clearInterval(interval);
+  }, [profile?.feedPausesEnabled, showPause]);
+
+  const handleDismissPause = () => {
+    setShowPause(false);
+    sessionStartRef.current = Date.now(); // Reset session
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -28,29 +58,46 @@ export const HomePage: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
-    // For a real app, we'd use a more complex query or a cloud function to aggregate the feed.
-    // For this prototype, we'll fetch posts from followed users + own posts.
-    // If following many people, we'd need to handle the 'in' limit (30).
-    const authorIds = [user.uid, ...followingIds].slice(0, 30);
+    setLoading(true);
 
-    const postsQuery = authorIds.length > 0 
-      ? query(
-          collection(db, 'posts'),
-          where('authorId', 'in', authorIds),
-          where('status', '==', 'active'),
-          orderBy('createdAt', 'desc'),
-          limit(30)
-        )
-      : query(
-          collection(db, 'posts'),
-          where('status', '==', 'active'),
-          orderBy('createdAt', 'desc'),
-          limit(30)
-        );
+    let postsQuery;
+
+    if (selectedHashtag) {
+      // Filter by hashtag - Chronological order
+      postsQuery = query(
+        collection(db, 'posts'),
+        where('hashtags', 'array-contains', selectedHashtag),
+        where('status', '==', 'active'),
+        limit(30)
+      );
+    } else {
+      // Normal feed (following + own)
+      const authorIds = [user.uid, ...followingIds].slice(0, 30);
+      postsQuery = authorIds.length > 0 
+        ? query(
+            collection(db, 'posts'),
+            where('authorId', 'in', authorIds),
+            where('status', '==', 'active'),
+            orderBy('createdAt', 'desc'),
+            limit(30)
+          )
+        : query(
+            collection(db, 'posts'),
+            where('status', '==', 'active'),
+            orderBy('createdAt', 'desc'),
+            limit(30)
+          );
+    }
 
     const unsubscribe = onSnapshot(postsQuery, (snapshot) => {
-      const postsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      let postsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       
+      // Sort in memory if filtering by hashtag (to avoid index requirement)
+      // This ensures chronological order as requested
+      if (selectedHashtag) {
+        postsData.sort((a: any, b: any) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      }
+
       const now = new Date();
       const activePosts = postsData.filter((post: any) => {
         if (!post.expiresAt) return true;
@@ -60,54 +107,151 @@ export const HomePage: React.FC = () => {
       setPosts(activePosts);
       setLoading(false);
     }, (error) => {
-      // If the query fails (e.g. due to permissions on private posts we don't follow),
-      // we'll fall back to public posts only.
-      console.warn("Feed query failed, falling back to public posts:", error);
-      
-      const publicQuery = query(
-        collection(db, 'posts'),
-        where('status', '==', 'active'),
-        orderBy('createdAt', 'desc'),
-        limit(20)
-      );
-      
-      // Note: This fallback might still fail if there are private posts in the first 20.
-      // The real fix is to ensure the query only includes accessible documents.
+      console.warn("Feed query failed:", error);
+      setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [user, followingIds]);
+  }, [user, followingIds, selectedHashtag]);
 
   return (
     <div className="py-8 px-4 bg-black">
-      <header className="mb-8 flex items-center justify-between">
+      <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gold tracking-tight">Tu Feed</h1>
-          <p className="text-gold/60">Contenido seleccionado para tu bienestar.</p>
+          <h1 className="text-3xl font-bold text-gold tracking-tight flex items-center space-x-2">
+            {selectedHashtag ? (
+              <>
+                <Hash className="text-gold" size={28} />
+                <span>{selectedHashtag.startsWith('#') ? selectedHashtag.slice(1) : selectedHashtag}</span>
+              </>
+            ) : (
+              <span>Tu Feed</span>
+            )}
+          </h1>
+          <p className="text-gold/60">
+            {selectedHashtag 
+              ? `Mostrando publicaciones cronológicas con ${selectedHashtag}` 
+              : 'Contenido seleccionado para tu bienestar.'}
+          </p>
         </div>
-        <div className="flex bg-black-soft p-1 rounded-2xl border border-gold/20 shadow-sm">
-          <button 
-            onClick={() => setFilter('recent')}
-            className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${
-              filter === 'recent' ? 'bg-gold text-black shadow-md' : 'text-gold/60 hover:bg-white/5'
-            }`}
-          >
-            <Clock size={16} />
-            <span>Reciente</span>
-          </button>
-          <button 
-            onClick={() => setFilter('trending')}
-            className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${
-              filter === 'trending' ? 'bg-gold text-black shadow-md' : 'text-gold/60 hover:bg-white/5'
-            }`}
-          >
-            <TrendingUp size={16} />
-            <span>Tendencias</span>
-          </button>
+        <div className="flex items-center space-x-3">
+          {selectedHashtag && (
+            <button 
+              onClick={() => setSearchParams({})}
+              className="text-gold/60 hover:text-gold text-xs font-bold flex items-center space-x-1 bg-gold/5 px-4 py-2 rounded-xl border border-gold/20 transition-all hover:bg-gold/10"
+            >
+              <X size={14} />
+              <span>Limpiar filtro</span>
+            </button>
+          )}
+          <div className="flex bg-black-soft p-1 rounded-2xl border border-gold/20 shadow-sm relative">
+            <button 
+              onClick={() => {
+                setFilter('recent');
+                setShowHashtagInput(false);
+              }}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${
+                filter === 'recent' && !showHashtagInput ? 'bg-gold text-black shadow-md' : 'text-gold/60 hover:bg-white/5'
+              }`}
+            >
+              <Clock size={16} />
+              <span className="hidden sm:inline">Reciente</span>
+            </button>
+            <button 
+              onClick={() => {
+                setFilter('trending');
+                setShowHashtagInput(false);
+              }}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${
+                filter === 'trending' && !showHashtagInput ? 'bg-gold text-black shadow-md' : 'text-gold/60 hover:bg-white/5'
+              }`}
+            >
+              <TrendingUp size={16} />
+              <span className="hidden sm:inline">Tendencias</span>
+            </button>
+            <button 
+              onClick={() => setShowHashtagInput(!showHashtagInput)}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${
+                showHashtagInput ? 'bg-gold text-black shadow-md' : 'text-gold/60 hover:bg-white/5'
+              }`}
+            >
+              <Hash size={16} />
+              <span>Filtrar #</span>
+            </button>
+
+            <AnimatePresence>
+              {showHashtagInput && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                  className="absolute top-full right-0 mt-2 z-50 bg-black-soft border border-gold/20 p-3 rounded-2xl shadow-2xl min-w-[240px]"
+                >
+                  <form 
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (hashtagInput.trim()) {
+                        const tag = hashtagInput.trim().startsWith('#') ? hashtagInput.trim() : `#${hashtagInput.trim()}`;
+                        setSearchParams({ tag });
+                        setShowHashtagInput(false);
+                        setHashtagInput('');
+                      }
+                    }}
+                    className="flex items-center space-x-2"
+                  >
+                    <div className="relative flex-1">
+                      <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-gold/40" size={14} />
+                      <input 
+                        type="text"
+                        value={hashtagInput}
+                        onChange={(e) => setHashtagInput(e.target.value)}
+                        placeholder="Escribe un hashtag..."
+                        autoFocus
+                        className="w-full pl-8 pr-3 py-2 bg-black border border-gold/20 rounded-xl text-white text-sm focus:ring-1 focus:ring-gold outline-none placeholder:text-slate-600"
+                      />
+                    </div>
+                    <button 
+                      type="submit"
+                      className="p-2 bg-gold text-black rounded-xl hover:bg-gold-light transition-colors"
+                    >
+                      <Sparkles size={16} />
+                    </button>
+                  </form>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </header>
 
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-2xl mx-auto relative">
+        <AnimatePresence>
+          {showPause && (
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="sticky top-20 z-40 mb-8 p-6 bg-gold text-black rounded-3xl shadow-2xl flex items-center justify-between border-4 border-black"
+            >
+              <div className="flex items-center space-x-4">
+                <div className="w-12 h-12 bg-black/10 rounded-2xl flex items-center justify-center">
+                  <Coffee size={24} />
+                </div>
+                <div>
+                  <h3 className="font-black text-lg uppercase tracking-tight">Tómate un respiro</h3>
+                  <p className="text-black/60 text-sm font-bold">Llevas un rato navegando. ¿Qué tal un descanso?</p>
+                </div>
+              </div>
+              <button 
+                onClick={handleDismissPause}
+                className="p-2 hover:bg-black/10 rounded-full transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {loading ? (
           <div className="space-y-8">
             {[1, 2, 3].map(i => (
@@ -117,7 +261,11 @@ export const HomePage: React.FC = () => {
         ) : posts.length > 0 ? (
           <div className="space-y-4">
             {posts.map(post => (
-              <PostCard key={post.id} post={post} />
+              <PostCard 
+                key={post.id} 
+                post={post} 
+                onHashtagClick={(tag) => setSearchParams({ tag })}
+              />
             ))}
           </div>
         ) : (

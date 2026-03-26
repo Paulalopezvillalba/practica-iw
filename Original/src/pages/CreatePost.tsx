@@ -68,7 +68,13 @@ export const CreatePost: React.FC = () => {
       const response = await fetch('/api/google-photos/list', {
         headers: { Authorization: `Bearer ${tokens.access_token}` }
       });
+      if (response.status === 401) {
+        setError("Tu sesión de Google Photos ha expirado. Por favor, reconéctala en Configuración.");
+        localStorage.removeItem('google_photos_tokens');
+        return;
+      }
       const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to fetch photos");
       setGooglePhotos(data.mediaItems || []);
     } catch (err) {
       console.error("Error fetching Google Photos:", err);
@@ -139,6 +145,7 @@ export const CreatePost: React.FC = () => {
         expiresAt,
         likesCount: 0,
         commentsCount: 0,
+        permittedUsers: [],
         status: 'active',
         createdAt: new Date().toISOString()
       });
@@ -241,6 +248,21 @@ export const CreatePost: React.FC = () => {
                 </button>
               </div>
             )}
+
+            <div className="flex items-center space-x-2">
+              <div className="flex-1 h-px bg-gold/10" />
+              <span className="text-[10px] font-bold text-gold/20 uppercase tracking-widest">O usa Google Photos</span>
+              <div className="flex-1 h-px bg-gold/10" />
+            </div>
+
+            <button
+              type="button"
+              onClick={fetchGooglePhotos}
+              className="w-full py-3 px-4 rounded-xl bg-gold/10 border border-gold/20 text-gold font-bold flex items-center justify-center space-x-2 hover:bg-gold/20 transition-all"
+            >
+              <Cloud size={20} />
+              <span>Seleccionar de Google Photos</span>
+            </button>
 
             <div className="flex items-center space-x-2">
               <div className="flex-1 h-px bg-gold/10" />

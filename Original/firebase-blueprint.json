@@ -14,7 +14,10 @@
         "role": { "type": "string" },
         "status": { "type": "string", "enum": ["active", "suspended", "banned"] },
         "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "usageLimitMinutes": { "type": "number" },
+        "pauseModeEnabled": { "type": "boolean" },
+        "feedPausesEnabled": { "type": "boolean" }
       },
       "required": ["uid", "username", "isPrivate"]
     },
@@ -26,8 +29,7 @@
         "email": { "type": "string", "format": "email" },
         "firstName": { "type": "string" },
         "lastName": { "type": "string" },
-        "birthDate": { "type": "string", "format": "date" },
-        "usageLimitMinutes": { "type": "number" }
+        "birthDate": { "type": "string", "format": "date" }
       },
       "required": ["email"]
     },
@@ -48,7 +50,8 @@
         "likesCount": { "type": "number" },
         "commentsCount": { "type": "number" },
         "status": { "type": "string", "enum": ["active", "archived"] },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": { "type": "string", "format": "date-time" },
+        "permittedUsers": { "type": "array", "items": { "type": "string" } }
       },
       "required": ["authorId", "mediaUrl", "mediaType", "duration", "status", "createdAt"]
     },
@@ -75,7 +78,8 @@
         "lastMessage": { "type": "string" },
         "lastMessageAt": { "type": "string", "format": "date-time" },
         "name": { "type": "string" },
-        "adminId": { "type": "string" }
+        "moderatorId": { "type": "string" },
+        "mutedParticipants": { "type": "array", "items": { "type": "string" } }
       },
       "required": ["type", "participants"]
     },
@@ -86,10 +90,26 @@
       "properties": {
         "chatId": { "type": "string" },
         "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
         "text": { "type": "string" },
         "mediaUrl": { "type": "string" },
         "mediaType": { "type": "string", "enum": ["image", "video", "poll"] },
-        "pollData": { "type": "object" },
+        "pollData": { 
+          "type": "object",
+          "properties": {
+            "question": { "type": "string" },
+            "options": { 
+              "type": "array", 
+              "items": { 
+                "type": "object",
+                "properties": {
+                  "text": { "type": "string" },
+                  "votes": { "type": "array", "items": { "type": "string" } }
+                }
+              } 
+            }
+          }
+        },
         "sharedPostId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
@@ -132,6 +152,22 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["requesterId", "targetId", "status", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Stores user notifications.",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["like", "comment", "follow", "mention"] },
+        "fromUserId": { "type": "string" },
+        "fromUserName": { "type": "string" },
+        "fromUserPhoto": { "type": "string" },
+        "postId": { "type": "string" },
+        "text": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "fromUserId", "fromUserName", "isRead", "createdAt"]
     }
   },
   "firestore": {
@@ -154,6 +190,10 @@
     "/users/{userId}/followRequests/{requesterId}": {
       "schema": "FollowRequest",
       "description": "Pending follow requests for this user."
+    },
+    "/users/{userId}/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User notifications."
     },
     "/posts/{postId}": {
       "schema": "Post",

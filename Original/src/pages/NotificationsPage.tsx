@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, orderBy, onSnapshot, limit } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, limit, updateDoc, doc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { motion } from 'motion/react';
-import { Heart, MessageCircle, UserPlus, Bell, ChevronRight, UserCheck } from 'lucide-react';
+import { Heart, MessageCircle, UserPlus, Bell, ChevronRight, UserCheck, AtSign } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Link, useNavigate } from 'react-router-dom';
@@ -29,21 +29,84 @@ export const NotificationsPage: React.FC = () => {
       }
     );
 
-    setLoading(false);
-    return () => unsubscribeRequests();
+    // Listen for real notifications
+    const notificationsQuery = query(
+      collection(db, 'users', user.uid, 'notifications'),
+      orderBy('createdAt', 'desc'),
+      limit(50)
+    );
+
+    const unsubscribeNotifications = onSnapshot(notificationsQuery, (snapshot) => {
+      setNotifications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/notifications`);
+      setLoading(false);
+    });
+
+    return () => {
+      unsubscribeRequests();
+      unsubscribeNotifications();
+    };
   }, [user]);
 
-  const mockNotifications = [
-    { id: '1', type: 'like', user: 'maría_rosa', text: 'le ha dado a me gusta a tu foto.', time: new Date(Date.now() - 1000 * 60 * 5) },
-    { id: '2', type: 'follow', user: 'carmen_lain', text: 'ha empezado a seguirte.', time: new Date(Date.now() - 1000 * 60 * 60 * 2) },
-    { id: '3', type: 'comment', user: 'paco_millan', text: 'comentó: "¡Qué buena foto!"', time: new Date(Date.now() - 1000 * 60 * 60 * 24) },
-  ];
+  const handleNotificationClick = async (notif: any) => {
+    if (!notif.isRead) {
+      try {
+        await updateDoc(doc(db, 'users', user.uid, 'notifications', notif.id), {
+          isRead: true
+        });
+      } catch (error) {
+        console.error("Error marking notification as read:", error);
+      }
+    }
+
+    if (notif.postId) {
+      navigate(`/post/${notif.postId}`);
+    } else if (notif.fromUserId) {
+      navigate(`/profile/${notif.fromUserId}`);
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    const unreadNotifications = notifications.filter(n => !n.isRead);
+    if (unreadNotifications.length === 0) return;
+
+    try {
+      const promises = unreadNotifications.map(n => 
+        updateDoc(doc(db, 'users', user.uid, 'notifications', n.id), {
+          isRead: true
+        })
+      );
+      await Promise.all(promises);
+    } catch (error) {
+      console.error("Error marking all as read:", error);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-black">
+        <div className="w-12 h-12 border-4 border-gold/20 border-t-gold rounded-full animate-spin"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 max-w-2xl mx-auto bg-black min-h-screen">
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold text-white tracking-tight">Actividad</h1>
-        <p className="text-gold/60">Mantente al día con tus interacciones.</p>
+      <header className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-white tracking-tight">Actividad</h1>
+          <p className="text-gold/60">Mantente al día con tus interacciones.</p>
+        </div>
+        {notifications.some(n => !n.isRead) && (
+          <button 
+            onClick={handleMarkAllAsRead}
+            className="text-xs font-bold text-gold hover:text-white transition-colors uppercase tracking-widest"
+          >
+            Marcar todo como leído
+          </button>
+        )}
       </header>
 
       <div className="space-y-2">
@@ -76,33 +139,45 @@ export const NotificationsPage: React.FC = () => {
           </motion.div>
         )}
 
-        {mockNotifications.map((notif) => (
-          <motion.div 
-            key={notif.id}
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="flex items-center justify-between p-4 bg-black-soft rounded-2xl border border-gold/20 hover:bg-gold/10 transition-colors cursor-pointer group"
-          >
-            <div className="flex items-center space-x-4">
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                notif.type === 'like' ? 'bg-rose-500/10 text-rose-500' : 
-                notif.type === 'follow' ? 'bg-gold/10 text-gold' : 'bg-gold/10 text-gold'
-              }`}>
-                {notif.type === 'like' ? <Heart size={20} fill="currentColor" /> : 
-                 notif.type === 'follow' ? <UserPlus size={20} /> : <MessageCircle size={20} />}
+        {notifications.length === 0 ? (
+          <div className="text-center py-12">
+            <Bell size={48} className="mx-auto text-gold/20 mb-4" />
+            <p className="text-gold/40">No tienes notificaciones aún.</p>
+          </div>
+        ) : (
+          notifications.map((notif) => (
+            <motion.div 
+              key={notif.id}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              onClick={() => handleNotificationClick(notif)}
+              className={`flex items-center justify-between p-4 rounded-2xl border transition-all cursor-pointer group ${
+                notif.isRead ? 'bg-black-soft border-gold/10' : 'bg-gold/5 border-gold/30'
+              }`}
+            >
+              <div className="flex items-center space-x-4">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                  notif.type === 'like' ? 'bg-rose-500/10 text-rose-500' : 
+                  notif.type === 'follow' ? 'bg-gold/10 text-gold' : 
+                  notif.type === 'mention' ? 'bg-blue-500/10 text-blue-500' : 'bg-gold/10 text-gold'
+                }`}>
+                  {notif.type === 'like' ? <Heart size={20} fill="currentColor" /> : 
+                   notif.type === 'follow' || notif.type === 'follow_accept' ? <UserPlus size={20} /> : 
+                   notif.type === 'mention' ? <AtSign size={20} /> : <MessageCircle size={20} />}
+                </div>
+                <div>
+                  <p className="text-sm text-white">
+                    <span className="font-bold text-gold">@{notif.fromUserName}</span> {notif.text}
+                  </p>
+                  <p className="text-xs text-gold/40 mt-0.5">
+                    {formatDistanceToNow(new Date(notif.createdAt), { addSuffix: true, locale: es })}
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm text-white">
-                  <span className="font-bold text-gold">@{notif.user}</span> {notif.text}
-                </p>
-                <p className="text-xs text-gold/40 mt-0.5">
-                  {formatDistanceToNow(notif.time, { addSuffix: true, locale: es })}
-                </p>
-              </div>
-            </div>
-            <ChevronRight size={18} className="text-gold/20 group-hover:text-gold transition-colors" />
-          </motion.div>
-        ))}
+              <ChevronRight size={18} className="text-gold/20 group-hover:text-gold transition-colors" />
+            </motion.div>
+          ))
+        )}
       </div>
 
       <div className="mt-12 p-6 bg-gold/5 rounded-3xl border border-gold/10 text-center">

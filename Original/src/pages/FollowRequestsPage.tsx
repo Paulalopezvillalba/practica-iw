@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, doc, updateDoc, deleteDoc, setDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, deleteDoc, setDoc, serverTimestamp, writeBatch, addDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
@@ -8,7 +8,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 export const FollowRequestsPage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +73,17 @@ export const FollowRequestsPage: React.FC = () => {
       console.log("Committing batch for follow request acceptance...");
       await batch.commit();
       console.log("Follow request accepted successfully");
+
+      // 4. Create notification for the requester
+      await addDoc(collection(db, 'users', requesterId, 'notifications'), {
+        type: 'follow_accept',
+        fromUserId: user.uid,
+        fromUserName: profile?.username || user.displayName || 'usuario',
+        fromUserPhoto: profile?.photoURL || user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName || 'U'}&background=random`,
+        text: 'ha aceptado tu solicitud de seguimiento',
+        isRead: false,
+        createdAt: new Date().toISOString()
+      });
     } catch (err: any) {
       console.error("Error accepting follow request:", err);
       setError(`Error al aceptar la solicitud: ${err.message || 'Error desconocido'}`);

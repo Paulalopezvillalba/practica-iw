@@ -2,17 +2,21 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Home, Search, PlusSquare, Heart, User } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useNotificationsCount } from '../hooks/useNotificationsCount';
+import { useUnreadCount } from '../hooks/useUnreadCount';
 import { motion } from 'motion/react';
 
 export const BottomNav: React.FC = () => {
   const { profile } = useAuth();
   const location = useLocation();
+  const notificationsCount = useNotificationsCount();
+  const unreadCount = useUnreadCount();
 
   const navItems = [
     { icon: Home, label: 'Inicio', path: '/' },
     { icon: Search, label: 'Buscar', path: '/explore' },
     { icon: PlusSquare, label: 'Crear', path: '/create' },
-    { icon: Heart, label: 'Actividad', path: '/notifications' },
+    { icon: Heart, label: 'Actividad', path: '/notifications', badge: notificationsCount },
     { icon: User, label: 'Perfil', path: `/profile/${profile?.uid}` },
   ];
 
@@ -32,6 +36,11 @@ export const BottomNav: React.FC = () => {
               className={`transition-colors ${isActive ? 'text-gold' : 'text-gold/40'}`}
               fill={isActive && item.label !== 'Buscar' && item.label !== 'Crear' ? 'currentColor' : 'none'}
             />
+            {item.badge !== undefined && item.badge > 0 && (
+              <span className="absolute top-1 right-1 bg-rose-500 text-white text-[8px] font-bold min-w-[14px] h-[14px] flex items-center justify-center rounded-full border border-black px-0.5">
+                {item.badge > 9 ? '9+' : item.badge}
+              </span>
+            )}
             {isActive && (
               <motion.div 
                 layoutId="bottomNavDot"
