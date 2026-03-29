@@ -3,8 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { doc, getDoc, collection, query, where, orderBy, onSnapshot, updateDoc, setDoc, deleteDoc, addDoc } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { motion } from 'motion/react';
-import { Settings, Grid, UserPlus, Check, Edit3, MessageCircle, Heart, Lock, Clock, UserMinus } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Settings, Grid, UserPlus, Check, Edit3, MessageCircle, Heart, Lock, Clock, UserMinus, ShieldAlert } from 'lucide-react';
+import { ReportModal } from '../components/ReportModal';
 
 interface Post {
   id: string;
@@ -31,6 +32,7 @@ export const ProfilePage: React.FC = () => {
   const [isRequested, setIsRequested] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
+  const [showReportModal, setShowReportModal] = useState(false);
   const navigate = useNavigate();
 
   const isOwnProfile = user?.uid === id;
@@ -164,14 +166,15 @@ export const ProfilePage: React.FC = () => {
   if (!profile) return <div className="p-8 text-center text-gold bg-black min-h-screen">Usuario no encontrado.</div>;
 
   return (
-    <div className="p-4 lg:p-8 bg-black min-h-screen">
-      <header className="flex flex-col md:flex-row items-center md:items-start space-y-6 md:space-y-0 md:space-x-12 mb-8 lg:mb-12">
+    <div className="pt-safe pb-24 px-4 lg:px-8 bg-black min-h-screen">
+      <header className="flex flex-col md:flex-row items-center md:items-start space-y-6 md:space-y-0 md:space-x-12 mb-8 lg:mb-16">
         <div className="relative group">
-          <div className="p-0.5 lg:p-1 rounded-full bg-gradient-to-tr from-gold-dark via-gold to-gold-light">
+          <div className="absolute -inset-1 bg-gradient-to-tr from-gold-dark via-gold to-gold-light rounded-full opacity-20 blur-sm group-hover:opacity-40 transition-opacity" />
+          <div className="relative p-0.5 lg:p-1 rounded-full bg-gradient-to-tr from-gold-dark via-gold to-gold-light shadow-[0_0_30px_rgba(212,175,55,0.2)]">
             <img 
               src={profile.photoURL} 
               alt={profile.username} 
-              className="w-24 h-24 lg:w-40 lg:h-40 rounded-full object-cover border-2 lg:border-4 border-black shadow-2xl"
+              className="w-24 h-24 md:w-32 md:h-32 lg:w-44 lg:h-44 rounded-full object-cover border-2 lg:border-4 border-black shadow-2xl"
               referrerPolicy="no-referrer"
               onError={(e) => {
                 const target = e.target as HTMLImageElement;
@@ -182,86 +185,95 @@ export const ProfilePage: React.FC = () => {
           {isOwnProfile && (
             <button 
               onClick={() => navigate('/settings')}
-              className="absolute bottom-1 right-1 lg:bottom-2 lg:right-2 p-1.5 lg:p-2 bg-gold text-black rounded-full shadow-lg hover:bg-gold-light transition-colors"
+              className="absolute bottom-1 right-1 md:bottom-2 md:right-2 lg:bottom-4 lg:right-4 p-2 lg:p-3 bg-gold text-black rounded-full shadow-xl hover:bg-gold-light transition-all active:scale-90 z-10"
             >
-              <Edit3 size={14} className="lg:w-[18px] lg:h-[18px]" />
+              <Edit3 size={14} className="md:w-[18px] md:h-[18px] lg:w-[20px] lg:h-[20px]" />
             </button>
           )}
         </div>
 
-        <div className="flex-1 w-full text-center md:text-left">
-          <div className="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-4 mb-4 lg:mb-6">
-            <h2 className="text-xl lg:text-2xl font-bold text-white tracking-tight">@{profile.username}</h2>
+        <div className="flex-1 w-full text-center md:text-left pt-2">
+          <div className="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-6 mb-6 lg:mb-8">
+            <h2 className="text-2xl md:text-3xl lg:text-4xl font-bold text-white tracking-tight">@{profile.username}</h2>
             {isOwnProfile ? (
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-3">
                 <button 
                   onClick={() => navigate('/settings')}
-                  className="px-4 lg:px-6 py-1.5 lg:py-2 bg-black-soft border border-gold/20 rounded-xl font-semibold text-xs lg:text-sm text-gold hover:bg-gold/10 transition-all"
+                  className="px-6 lg:px-8 py-2 lg:py-2.5 bg-gold/10 border border-gold/20 rounded-full font-bold text-xs lg:text-sm text-gold hover:bg-gold/20 transition-all active:scale-95"
                 >
                   Editar perfil
                 </button>
                 <button 
                   onClick={() => navigate('/settings')}
-                  className="p-2 text-gold/60 hover:text-gold transition-colors"
+                  className="p-2.5 text-gold/60 hover:text-gold transition-colors active:scale-90 rounded-full hover:bg-gold/10"
                 >
-                  <Settings size={20} className="lg:w-6 lg:h-6" />
+                  <Settings size={20} className="lg:w-7 lg:h-7" />
                 </button>
               </div>
             ) : (
-              <button 
-                onClick={handleFollow}
-                className={`px-6 py-2 rounded-xl font-semibold text-sm transition-all shadow-lg flex items-center space-x-2 ${
-                  isFollowing 
-                    ? 'bg-black-soft border border-gold/20 text-gold hover:bg-gold/10' 
-                    : isRequested
-                      ? 'bg-black-soft border border-gold/20 text-gold/40'
-                      : 'bg-gold text-black hover:bg-gold-light shadow-gold/20'
-                }`}
-              >
-                {isFollowing ? (
-                  <>
-                    <UserMinus size={16} />
-                    <span>Dejar de seguir</span>
-                  </>
-                ) : isRequested ? (
-                  <>
-                    <Clock size={16} />
-                    <span>Solicitado</span>
-                  </>
-                ) : (
-                  <>
-                    <UserPlus size={16} />
-                    <span>Seguir</span>
-                  </>
-                )}
-              </button>
+              <div className="flex items-center space-x-3">
+                <button 
+                  onClick={handleFollow}
+                  className={`px-8 py-2 lg:py-2.5 rounded-full font-bold text-xs lg:text-sm transition-all shadow-lg flex items-center space-x-2 active:scale-95 ${
+                    isFollowing 
+                      ? 'bg-black-soft border border-gold/20 text-gold hover:bg-gold/10' 
+                      : isRequested
+                        ? 'bg-black-soft border border-gold/20 text-gold/40'
+                        : 'bg-gold text-black hover:bg-gold-light shadow-gold/30'
+                  }`}
+                >
+                  {isFollowing ? (
+                    <>
+                      <UserMinus size={16} />
+                      <span>Siguiendo</span>
+                    </>
+                  ) : isRequested ? (
+                    <>
+                      <Clock size={16} />
+                      <span>Solicitado</span>
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus size={16} />
+                      <span>Seguir</span>
+                    </>
+                  )}
+                </button>
+                <button 
+                  onClick={() => setShowReportModal(true)}
+                  className="p-2.5 text-rose-500/40 hover:text-rose-500 transition-colors active:scale-90 rounded-full hover:bg-rose-500/10"
+                  title="Reportar usuario"
+                >
+                  <ShieldAlert size={20} className="lg:w-7 lg:h-7" />
+                </button>
+              </div>
             )}
           </div>
 
           <div className="flex justify-around md:justify-start md:space-x-8 mb-4 lg:mb-6 border-y border-gold/5 py-3 md:border-none md:py-0">
             <div className="text-center md:text-left">
               <span className="block md:inline font-bold text-white text-sm lg:text-base">{posts.length}</span> 
-              <span className="text-gold/40 md:text-gold/60 text-[10px] lg:text-sm uppercase md:lowercase md:ml-1 tracking-wider md:tracking-normal">publicaciones</span>
+              <span className="text-gold/40 md:text-gold/60 text-[9px] lg:text-sm uppercase md:lowercase md:ml-1 tracking-widest md:tracking-normal">publicaciones</span>
             </div>
             <button 
               onClick={() => navigate(`/profile/${id}/follows?type=followers`)}
-              className="text-center md:text-left hover:opacity-80 transition-opacity"
+              className="text-center md:text-left hover:opacity-80 transition-opacity active:scale-95"
             >
               <span className="block md:inline font-bold text-white text-sm lg:text-base">{followersCount}</span> 
-              <span className="text-gold/40 md:text-gold/60 text-[10px] lg:text-sm uppercase md:lowercase md:ml-1 tracking-wider md:tracking-normal">seguidores</span>
+              <span className="text-gold/40 md:text-gold/60 text-[9px] lg:text-sm uppercase md:lowercase md:ml-1 tracking-widest md:tracking-normal">seguidores</span>
             </button>
             <button 
               onClick={() => navigate(`/profile/${id}/follows?type=following`)}
-              className="text-center md:text-left hover:opacity-80 transition-opacity"
+              className="text-center md:text-left hover:opacity-80 transition-opacity active:scale-95"
             >
               <span className="block md:inline font-bold text-white text-sm lg:text-base">{followingCount}</span> 
-              <span className="text-gold/40 md:text-gold/60 text-[10px] lg:text-sm uppercase md:lowercase md:ml-1 tracking-wider md:tracking-normal">seguidos</span>
+              <span className="text-gold/40 md:text-gold/60 text-[9px] lg:text-sm uppercase md:lowercase md:ml-1 tracking-widest md:tracking-normal">seguidos</span>
             </button>
           </div>
 
           <div className="px-2 md:px-0">
-            <h3 className="font-bold text-gold text-sm lg:text-base">{profile.displayName || profile.username}</h3>
-            <p className="text-white/80 whitespace-pre-wrap mt-1 text-xs lg:text-sm leading-relaxed">{profile.bio || 'Sin biografía.'}</p>
+            <h3 className="font-bold text-gold text-xs md:text-sm lg:text-base">{profile.displayName || profile.username}</h3>
+            <p className="text-white/80 whitespace-pre-wrap mt-1 text-[11px] md:text-xs lg:text-sm leading-relaxed">{profile.bio || 'Sin biografía.'}</p>
           </div>
         </div>
       </header>
@@ -334,6 +346,16 @@ export const ProfilePage: React.FC = () => {
           )}
         </div>
       </div>
+
+      <AnimatePresence>
+        {showReportModal && (
+          <ReportModal 
+            onClose={() => setShowReportModal(false)}
+            targetId={id!}
+            targetType="user"
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };

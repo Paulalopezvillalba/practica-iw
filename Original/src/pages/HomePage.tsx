@@ -19,7 +19,16 @@ export const HomePage: React.FC = () => {
   const [hashtagInput, setHashtagInput] = useState('');
   const [followingIds, setFollowingIds] = useState<string[]>([]);
   const [showPause, setShowPause] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const sessionStartRef = useRef<number>(Date.now());
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    // The onSnapshot will automatically update, but we simulate a delay for UX
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    setIsRefreshing(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   useEffect(() => {
     if (!profile?.feedPausesEnabled) return;
@@ -115,18 +124,28 @@ export const HomePage: React.FC = () => {
   }, [user, followingIds, selectedHashtag]);
 
   return (
-    <div className="py-8 px-4 bg-black">
+    <div className="pt-safe pb-8 px-4 bg-black">
       <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gold tracking-tight flex items-center space-x-2">
-            {selectedHashtag ? (
-              <>
-                <Hash className="text-gold" size={28} />
-                <span>{selectedHashtag.startsWith('#') ? selectedHashtag.slice(1) : selectedHashtag}</span>
-              </>
-            ) : (
-              <span>Tu Feed</span>
-            )}
+          <h1 className="text-3xl font-bold text-gold tracking-tight flex items-center justify-between w-full">
+            <div className="flex items-center space-x-2">
+              {selectedHashtag ? (
+                <>
+                  <Hash className="text-gold" size={28} />
+                  <span>{selectedHashtag.startsWith('#') ? selectedHashtag.slice(1) : selectedHashtag}</span>
+                </>
+              ) : (
+                <span>Tu Feed</span>
+              )}
+            </div>
+            <motion.button 
+              onClick={handleRefresh}
+              animate={{ rotate: isRefreshing ? 360 : 0 }}
+              transition={{ repeat: isRefreshing ? Infinity : 0, duration: 1, ease: "linear" }}
+              className="lg:hidden p-2 text-gold/60 hover:text-gold active:scale-90"
+            >
+              <Sparkles size={24} />
+            </motion.button>
           </h1>
           <p className="text-gold/60">
             {selectedHashtag 

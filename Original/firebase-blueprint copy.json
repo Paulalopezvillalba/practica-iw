@@ -13,6 +13,7 @@
         "isPrivate": { "type": "boolean" },
         "role": { "type": "string" },
         "status": { "type": "string", "enum": ["active", "suspended", "banned"] },
+        "sanctionedUntil": { "type": "string", "format": "date-time", "description": "Date until which the user is restricted from participating." },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" },
         "usageLimitMinutes": { "type": "number" },
@@ -111,6 +112,10 @@
           }
         },
         "sharedPostId": { "type": "string" },
+        "reactions": { 
+          "type": "object", 
+          "description": "Emoji reactions to the message. Keys are emojis, values are arrays of user IDs." 
+        },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["chatId", "senderId", "createdAt"]
@@ -168,6 +173,20 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["type", "fromUserId", "fromUserName", "isRead", "createdAt"]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "Stores content reports from users.",
+      "type": "object",
+      "properties": {
+        "reporterId": { "type": "string" },
+        "targetId": { "type": "string", "description": "ID of the post, comment, or user being reported." },
+        "targetType": { "type": "string", "enum": ["post", "comment", "user", "message"] },
+        "reason": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "reviewed", "dismissed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["reporterId", "targetId", "targetType", "reason", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -222,6 +241,10 @@
     "/sanctions/{sanctionId}": {
       "schema": "Sanction",
       "description": "User sanctions."
+    },
+    "/reports/{reportId}": {
+      "schema": "Report",
+      "description": "Content reports."
     }
   }
 }

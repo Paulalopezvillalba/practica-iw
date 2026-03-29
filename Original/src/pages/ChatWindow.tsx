@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { collection, query, orderBy, onSnapshot, addDoc, doc, updateDoc, serverTimestamp, getDoc, where } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, doc, updateDoc, serverTimestamp, getDoc, where, deleteDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, handleFirestoreError, OperationType, storage } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, Image, Smile, ArrowLeft, Info, MoreVertical, Phone, Video, Loader2, Users, UserPlus, UserMinus, VolumeX, Volume2, Trash2, BarChart2, Check, Plus } from 'lucide-react';
+import { Send, Image, Smile, ArrowLeft, Info, MoreVertical, Phone, Video, Loader2, Users, UserPlus, UserMinus, VolumeX, Volume2, Trash2, BarChart2, Check, Plus, Flag } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { SharedPostPreview } from '../components/SharedPostPreview';
+import { ReportModal } from '../components/ReportModal';
 
 interface PollOption {
   text: string;
@@ -36,6 +37,9 @@ export const ChatWindow: React.FC = () => {
   const [pollOptions, setPollOptions] = useState(['', '']);
   const [followingList, setFollowingList] = useState<any[]>([]);
   const [groupMembers, setGroupMembers] = useState<any[]>([]);
+  const [reactingToMessageId, setReactingToMessageId] = useState<string | null>(null);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportTargetId, setReportTargetId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
@@ -278,6 +282,53 @@ export const ChatWindow: React.FC = () => {
     }
   };
 
+  const handleReaction = async (messageId: string, emoji: string) => {
+    if (!chatId || !user) return;
+
+    const messageRef = doc(db, 'chats', chatId, 'messages', messageId);
+    const message = messages.find(m => m.id === messageId);
+    if (!message) return;
+
+    const reactions = message.reactions || {};
+    const currentEmojiReactions = reactions[emoji] || [];
+
+    let newReactions = { ...reactions };
+    if (currentEmojiReactions.includes(user.uid)) {
+      // Remove reaction
+      newReactions[emoji] = currentEmojiReactions.filter((id: string) => id !== user.uid);
+      if (newReactions[emoji].length === 0) {
+        delete newReactions[emoji];
+      }
+    } else {
+      // Add reaction
+      newReactions[emoji] = [...currentEmojiReactions, user.uid];
+    }
+
+    try {
+      await updateDoc(messageRef, { reactions: newReactions });
+      setReactingToMessageId(null);
+    } catch (error) {
+      console.error("Error toggling reaction:", error);
+    }
+  };
+
+  const handleDeleteMessage = async (messageId: string) => {
+    if (!chatId || !user) return;
+    
+    const isModerator = chatData?.moderatorId === user.uid;
+    const message = messages.find(m => m.id === messageId);
+    const isOwner = message?.senderId === user.uid;
+
+    if (!isModerator && !isOwner) return;
+
+    try {
+      await deleteDoc(doc(db, 'chats', chatId, 'messages', messageId));
+    } catch (error) {
+      console.error("Error deleting message:", error);
+      handleFirestoreError(error, OperationType.DELETE, `chats/${chatId}/messages/${messageId}`);
+    }
+  };
+
   const handleAddMember = async (targetUid: string) => {
     if (!chatId || !chatData || chatData.moderatorId !== user?.uid) return;
 
@@ -328,20 +379,18 @@ export const ChatWindow: React.FC = () => {
   };
 
   const handleDeleteGroup = async () => {
-    if (!chatId || !chatData || chatData.moderatorId !== user?.uid) return;
+    if (!chatId || !chatData) return;
+    
+    if (chatData.moderatorId !== user?.uid) return;
+    
     if (!window.confirm("¿Estás seguro de que quieres eliminar este grupo? Esta acción no se puede deshacer.")) return;
-
+    
     try {
-      // In a real app, we might want to delete messages too, but for now we just delete the chat doc
-      // and navigate away.
-      await updateDoc(doc(db, 'chats', chatId), {
-        participants: [] // Effectively "deleting" it for everyone
-      });
-      // Actually delete it
-      // await deleteDoc(doc(db, 'chats', chatId));
+      await deleteDoc(doc(db, 'chats', chatId));
       navigate('/messages');
     } catch (error) {
       console.error("Error deleting group:", error);
+      handleFirestoreError(error, OperationType.DELETE, `chats/${chatId}`);
     }
   };
 
@@ -350,36 +399,38 @@ export const ChatWindow: React.FC = () => {
   return (
     <div className="flex flex-col h-screen bg-black">
       {/* Header */}
-      <header className="p-4 border-b border-gold/10 flex items-center justify-between bg-black/80 backdrop-blur-md sticky top-0 z-10">
-        <div className="flex items-center space-x-4">
-          <button onClick={() => navigate('/messages')} className="p-2 hover:bg-gold/10 rounded-full text-gold/60">
-            <ArrowLeft size={24} />
-          </button>
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-gold/10 rounded-xl flex items-center justify-center text-gold font-bold border border-gold/20 overflow-hidden">
-              {chatData?.type === 'individual' && otherUser?.photoURL ? (
-                <img src={otherUser.photoURL} alt="User" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-              ) : (
-                chatData?.name?.[0] || otherUser?.username?.[0] || 'C'
-              )}
-            </div>
-            <div>
-              <h3 className="font-bold text-white leading-tight">
-                {chatData?.name || (otherUser ? `@${otherUser.username}` : 'Chat privado')}
-              </h3>
-              <p className="text-[10px] text-gold font-bold uppercase tracking-wider">En línea</p>
+      <header className="pt-safe border-b border-gold/10 bg-black/80 backdrop-blur-md sticky top-0 z-10">
+        <div className="p-3 lg:p-4 flex items-center justify-between">
+          <div className="flex items-center space-x-3 lg:space-x-4">
+            <button onClick={() => navigate('/messages')} className="p-2 hover:bg-gold/10 rounded-full text-gold/60 active:scale-90">
+              <ArrowLeft size={20} className="lg:w-6 lg:h-6" />
+            </button>
+            <div className="flex items-center space-x-2 lg:space-x-3">
+              <div className="w-8 h-8 lg:w-10 lg:h-10 bg-gold/10 rounded-lg lg:rounded-xl flex items-center justify-center text-gold font-bold border border-gold/20 overflow-hidden">
+                {chatData?.type === 'individual' && otherUser?.photoURL ? (
+                  <img src={otherUser.photoURL} alt="User" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  chatData?.name?.[0] || otherUser?.username?.[0] || 'C'
+                )}
+              </div>
+              <div>
+                <h3 className="font-bold text-white leading-tight text-sm lg:text-base truncate max-w-[120px] md:max-w-none">
+                  {chatData?.name || (otherUser ? `@${otherUser.username}` : 'Chat privado')}
+                </h3>
+                <p className="text-[8px] lg:text-[10px] text-gold font-bold uppercase tracking-wider">En línea</p>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="flex items-center space-x-2">
-          <button className="p-2 text-gold/40 hover:text-gold transition-colors"><Phone size={20} /></button>
-          <button className="p-2 text-gold/40 hover:text-gold transition-colors"><Video size={20} /></button>
-          <button 
-            onClick={() => setShowSettings(true)}
-            className="p-2 text-gold/40 hover:text-gold transition-colors"
-          >
-            <Info size={20} />
-          </button>
+          <div className="flex items-center space-x-1 lg:space-x-2">
+            <button className="p-2 text-gold/40 hover:text-gold transition-colors active:scale-90"><Phone size={18} className="lg:w-5 lg:h-5" /></button>
+            <button className="p-2 text-gold/40 hover:text-gold transition-colors active:scale-90"><Video size={18} className="lg:w-5 lg:h-5" /></button>
+            <button 
+              onClick={() => setShowSettings(true)}
+              className="p-2 text-gold/40 hover:text-gold transition-colors active:scale-90"
+            >
+              <Info size={18} className="lg:w-5 lg:h-5" />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -463,10 +514,91 @@ export const ChatWindow: React.FC = () => {
                       </div>
                     )}
                     {msg.text && <p>{msg.text}</p>}
+                    
+                    {/* Reactions Display */}
+                    {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {Object.entries(msg.reactions).map(([emoji, uids]: [string, any]) => (
+                          <button
+                            key={emoji}
+                            onClick={() => handleReaction(msg.id, emoji)}
+                            className={`flex items-center space-x-1 px-1.5 py-0.5 rounded-full text-[10px] border transition-all ${
+                              uids.includes(user?.uid)
+                                ? 'bg-gold/20 border-gold text-gold'
+                                : 'bg-black/20 border-white/10 text-white/60 hover:border-white/30'
+                            }`}
+                          >
+                            <span>{emoji}</span>
+                            <span className="font-bold">{uids.length}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <p className={`text-[9px] mt-1 font-medium text-gold/40 ${isOwn ? 'text-right mr-1' : 'text-left ml-1'}`}>
-                    {format(new Date(msg.createdAt), 'HH:mm')}
-                  </p>
+
+                  <div className="flex items-center justify-between mt-1 px-1">
+                    <p className={`text-[9px] font-medium text-gold/40`}>
+                      {format(new Date(msg.createdAt), 'HH:mm')}
+                    </p>
+                    
+                    <div className="flex items-center space-x-2">
+                      {/* Report Button (for non-owners) */}
+                      {!isOwn && (
+                        <button 
+                          onClick={() => {
+                            setReportTargetId(msg.id);
+                            setShowReportModal(true);
+                          }}
+                          className="p-1 text-gold/20 hover:text-gold/60 transition-colors"
+                          title="Reportar mensaje"
+                        >
+                          <Flag size={12} />
+                        </button>
+                      )}
+
+                      {/* Delete Button (for owner or moderator) */}
+                      {(isOwn || chatData?.moderatorId === user?.uid) && (
+                        <button 
+                          onClick={() => handleDeleteMessage(msg.id)}
+                          className="p-1 text-rose-500/20 hover:text-rose-500/60 transition-colors"
+                          title="Eliminar mensaje"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+
+                      {/* Reaction Trigger */}
+                      <div className="relative">
+                        <button 
+                          onClick={() => setReactingToMessageId(reactingToMessageId === msg.id ? null : msg.id)}
+                          className="p-1 text-gold/20 hover:text-gold/60 transition-colors"
+                        >
+                          <Smile size={12} />
+                        </button>
+                        
+                        <AnimatePresence>
+                          {reactingToMessageId === msg.id && (
+                            <motion.div
+                              initial={{ opacity: 0, scale: 0.8, y: 10 }}
+                              animate={{ opacity: 1, scale: 1, y: 0 }}
+                              exit={{ opacity: 0, scale: 0.8, y: 10 }}
+                              className={`absolute bottom-full mb-2 p-2 bg-black-soft border border-gold/20 rounded-2xl shadow-2xl flex items-center space-x-2 z-20 ${isOwn ? 'right-0' : 'left-0'}`}
+                            >
+                              {['❤️', '😂', '😮', '😢', '🔥', '👍'].map(emoji => (
+                                <button
+                                  key={emoji}
+                                  onClick={() => handleReaction(msg.id, emoji)}
+                                  className="text-lg hover:scale-125 transition-transform p-1"
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </React.Fragment>
@@ -476,55 +608,62 @@ export const ChatWindow: React.FC = () => {
 
       {/* Input */}
       <footer className="p-4 bg-black border-t border-gold/10">
-        <form onSubmit={handleSendMessage} className="flex items-center space-x-4">
-          <div className="flex items-center space-x-1">
-            <button type="button" className="p-2 text-gold/40 hover:text-gold transition-colors">
-              <Smile size={24} />
-            </button>
-            {chatData?.type === 'group' && (
+        {chatData?.mutedParticipants?.includes(user?.uid) ? (
+          <div className="flex items-center justify-center space-x-3 py-4 bg-rose-500/5 border border-rose-500/10 rounded-2xl text-rose-500">
+            <VolumeX size={20} />
+            <span className="text-sm font-bold uppercase tracking-widest">Has sido silenciado por un moderador</span>
+          </div>
+        ) : (
+          <form onSubmit={handleSendMessage} className="flex items-center space-x-4">
+            <div className="flex items-center space-x-1">
+              <button type="button" className="p-2 text-gold/40 hover:text-gold transition-colors">
+                <Smile size={24} />
+              </button>
+              {chatData?.type === 'group' && (
+                <button 
+                  type="button" 
+                  onClick={() => setShowCreatePoll(true)}
+                  className="p-2 text-gold/40 hover:text-gold transition-colors"
+                  title="Crear encuesta"
+                >
+                  <BarChart2 size={24} />
+                </button>
+              )}
+            </div>
+            <div className="flex-1 relative">
+              <input 
+                type="text"
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                placeholder={uploading ? "Subiendo archivo..." : "Escribe un mensaje..."}
+                disabled={uploading}
+                className="w-full pl-4 pr-12 py-3 bg-black-soft rounded-2xl border border-gold/20 focus:ring-2 focus:ring-gold outline-none text-sm text-white placeholder:text-slate-600 disabled:opacity-50"
+              />
               <button 
                 type="button" 
-                onClick={() => setShowCreatePoll(true)}
-                className="p-2 text-gold/40 hover:text-gold transition-colors"
-                title="Crear encuesta"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gold/40 hover:text-gold transition-colors disabled:opacity-50"
               >
-                <BarChart2 size={24} />
+                {uploading ? <Loader2 size={20} className="animate-spin" /> : <Image size={20} />}
               </button>
-            )}
-          </div>
-          <div className="flex-1 relative">
-            <input 
-              type="text"
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              placeholder={uploading ? "Subiendo archivo..." : "Escribe un mensaje..."}
-              disabled={uploading}
-              className="w-full pl-4 pr-12 py-3 bg-black-soft rounded-2xl border border-gold/20 focus:ring-2 focus:ring-gold outline-none text-sm text-white placeholder:text-slate-600 disabled:opacity-50"
-            />
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                className="hidden" 
+                accept="image/*,video/*" 
+                onChange={handleFileUpload} 
+              />
+            </div>
             <button 
-              type="button" 
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gold/40 hover:text-gold transition-colors disabled:opacity-50"
+              type="submit"
+              disabled={!inputText.trim()}
+              className="p-3 bg-gold text-black rounded-2xl hover:bg-gold-light transition-all shadow-lg shadow-gold/20 disabled:opacity-50 disabled:shadow-none"
             >
-              {uploading ? <Loader2 size={20} className="animate-spin" /> : <Image size={20} />}
+              <Send size={20} />
             </button>
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              className="hidden" 
-              accept="image/*,video/*" 
-              onChange={handleFileUpload} 
-            />
-          </div>
-          <button 
-            type="submit"
-            disabled={!inputText.trim()}
-            className="p-3 bg-gold text-black rounded-2xl hover:bg-gold-light transition-all shadow-lg shadow-gold/20 disabled:opacity-50 disabled:shadow-none"
-          >
-            <Send size={20} />
-          </button>
-        </form>
+          </form>
+        )}
       </footer>
 
       {/* Group Settings Modal */}
@@ -761,6 +900,19 @@ export const ChatWindow: React.FC = () => {
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showReportModal && reportTargetId && (
+          <ReportModal 
+            targetId={reportTargetId}
+            targetType="message"
+            onClose={() => {
+              setShowReportModal(false);
+              setReportTargetId(null);
+            }} 
+          />
         )}
       </AnimatePresence>
     </div>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { collection, query, where, orderBy, onSnapshot, addDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -69,13 +70,25 @@ export const SharePostModal: React.FC<SharePostModalProps> = ({ post, onClose })
     chat.type === 'individual'
   );
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+  return createPortal(
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+    >
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="absolute inset-0 bg-black/90 backdrop-blur-md"
+      />
       <motion.div 
         initial={{ opacity: 0, scale: 0.9, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.9, y: 20 }}
-        className="bg-black-soft w-full max-w-md rounded-3xl border border-gold/20 shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
+        className="bg-black-soft w-full max-w-md rounded-3xl border border-gold/20 shadow-2xl overflow-hidden flex flex-col max-h-[80vh] relative z-10"
       >
         <div className="p-4 border-b border-gold/10 flex items-center justify-between">
           <h2 className="text-lg font-bold text-white">Compartir publicación</h2>
@@ -174,6 +187,7 @@ export const SharePostModal: React.FC<SharePostModalProps> = ({ post, onClose })
           </div>
         </div>
       </motion.div>
-    </div>
+    </motion.div>,
+    document.body
   );
 };

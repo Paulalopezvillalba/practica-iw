@@ -50,6 +50,10 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
 
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+
   .gold-gradient {
     @apply bg-gradient-to-tr from-gold-dark via-gold to-gold-light;
   }

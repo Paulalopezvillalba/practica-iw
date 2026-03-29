@@ -273,35 +273,37 @@ export const MessagesPage: React.FC = () => {
 
       {/* Chat List */}
       <div className="w-full max-w-md border-r border-gold/10 flex flex-col bg-black">
-        <header className="p-6 border-b border-gold/10 flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-white tracking-tight">Mensajes</h1>
-          <div className="flex items-center space-x-2">
-            {pendingRequests.length > 0 && (
-              <Link 
-                to="/messages/requests"
-                className="relative p-2 bg-gold/10 text-gold rounded-xl hover:bg-gold/20 transition-colors"
-                title="Solicitudes de mensaje"
+        <header className="pt-safe border-b border-gold/10 flex flex-col">
+          <div className="p-4 lg:p-6 flex items-center justify-between">
+            <h1 className="text-xl lg:text-2xl font-bold text-white tracking-tight">Mensajes</h1>
+            <div className="flex items-center space-x-2">
+              {pendingRequests.length > 0 && (
+                <Link 
+                  to="/messages/requests"
+                  className="relative p-1.5 lg:p-2 bg-gold/10 text-gold rounded-xl hover:bg-gold/20 transition-colors active:scale-90"
+                  title="Solicitudes de mensaje"
+                >
+                  <UserPlus size={20} className="lg:w-6 lg:h-6" />
+                  <span className="absolute -top-1 -right-1 w-4 h-4 lg:w-5 lg:h-5 bg-rose-500 text-white text-[8px] lg:text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-black">
+                    {pendingRequests.length}
+                  </span>
+                </Link>
+              )}
+              <button 
+                onClick={() => setShowCreateGroup(true)}
+                className="p-1.5 lg:p-2 bg-gold/10 text-gold rounded-xl hover:bg-gold/20 transition-colors active:scale-90"
+                title="Crear grupo"
               >
-                <UserPlus size={24} />
-                <span className="absolute -top-1 -right-1 w-5 h-5 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-black">
-                  {pendingRequests.length}
-                </span>
-              </Link>
-            )}
-            <button 
-              onClick={() => setShowCreateGroup(true)}
-              className="p-2 bg-gold/10 text-gold rounded-xl hover:bg-gold/20 transition-colors"
-              title="Crear grupo"
-            >
-              <Users size={24} />
-            </button>
-            <button 
-              onClick={() => setShowNewChat(true)}
-              className="p-2 bg-gold/10 text-gold rounded-xl hover:bg-gold/20 transition-colors"
-              title="Nuevo mensaje"
-            >
-              <Plus size={24} />
-            </button>
+                <Users size={20} className="lg:w-6 lg:h-6" />
+              </button>
+              <button 
+                onClick={() => setShowNewChat(true)}
+                className="p-1.5 lg:p-2 bg-gold/10 text-gold rounded-xl hover:bg-gold/20 transition-colors active:scale-90"
+                title="Nuevo mensaje"
+              >
+                <Plus size={20} className="lg:w-6 lg:h-6" />
+              </button>
+            </div>
           </div>
         </header>
 

@@ -117,7 +117,7 @@ export const ExplorePage: React.FC = () => {
   };
 
   return (
-    <div className="p-8 bg-black min-h-screen">
+    <div className="pt-safe pb-8 px-8 bg-black min-h-screen">
       <header className="mb-12">
         <h1 className="text-3xl font-bold text-white tracking-tight mb-6">Explorar</h1>
         <div className="relative max-w-xl">

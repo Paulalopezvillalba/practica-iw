@@ -8,6 +8,7 @@ interface AuthContextType {
   profile: any | null;
   loading: boolean;
   isAuthReady: boolean;
+  isSanctioned: boolean;
   signOut: () => Promise<void>;
 }
 
@@ -16,6 +17,7 @@ const AuthContext = createContext<AuthContextType>({
   profile: null,
   loading: true,
   isAuthReady: false,
+  isSanctioned: false,
   signOut: async () => {},
 });
 
@@ -26,6 +28,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [profile, setProfile] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAuthReady, setIsAuthReady] = useState(false);
+
+  const isSanctioned = profile?.sanctionedUntil ? new Date(profile.sanctionedUntil) > new Date() : false;
 
   const signOut = async () => {
     await firebaseSignOut(auth);
@@ -78,7 +82,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user]);
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, isAuthReady, signOut }}>
+    <AuthContext.Provider value={{ user, profile, loading, isAuthReady, isSanctioned, signOut }}>
       {children}
     </AuthContext.Provider>
   );

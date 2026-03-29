@@ -93,7 +93,7 @@ export const NotificationsPage: React.FC = () => {
   }
 
   return (
-    <div className="p-8 max-w-2xl mx-auto bg-black min-h-screen">
+    <div className="pt-safe pb-8 px-8 max-w-2xl mx-auto bg-black min-h-screen">
       <header className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-white tracking-tight">Actividad</h1>
